@@ -90,6 +90,8 @@
 
 	include txpath.'/vendors/Textpattern/Loader.php';
 
+    include_once dirname(txpath) . '/vendor/autoload.php';
+
 	$loader = new Textpattern_Loader(txpath.'/vendors');
 	$loader->register();
 

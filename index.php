@@ -85,6 +85,7 @@
 		ob_end_clean();
 	}
 
+    include_once $here . '/vendor/autoload.php';
 	include txpath.'/lib/constants.php';
 	include txpath.'/lib/txplib_misc.php';
 

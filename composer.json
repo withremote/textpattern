@@ -1,0 +1,16 @@
+{
+    "name": "withremote/textpattern",
+    "description": "Textpattern CMS",
+    "minimum-stability": "stable",
+    "authors": [
+        {
+            "name": "author's name",
+            "email": "email@example.com"
+        }
+    ],
+    "require": {
+        "phpmd/phpmd" : "1.4.*",
+        "squizlabs/php_codesniffer": "1.*",
+        "php-activerecord/php-activerecord": "v1.1.2"
+    }
+}
