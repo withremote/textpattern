@@ -3,21 +3,15 @@
   <component name="NewModuleRootManager">
     <content url="file://$MODULE_DIR$">
       <excludeFolder url="file://$MODULE_DIR$/vendor/composer" />
-      <excludeFolder url="file://$MODULE_DIR$/vendor/pdepend/pdepend" />
-      <excludeFolder url="file://$MODULE_DIR$/vendor/php-activerecord/php-activerecord" />
-      <excludeFolder url="file://$MODULE_DIR$/vendor/phpmd/phpmd" />
-      <excludeFolder url="file://$MODULE_DIR$/vendor/squizlabs/php_codesniffer" />
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />
     <orderEntry type="module-library">
       <library name="PHARS">
         <CLASSES>
-          <root url="phar://$MODULE_DIR$/vendor/pdepend/pdepend/src/site/rst/static_reflection/releases/staticReflection-0.1.1.phar" />
           <root url="phar://$MODULE_DIR$/composer.phar" />
         </CLASSES>
         <SOURCES>
-          <root url="phar://$MODULE_DIR$/vendor/pdepend/pdepend/src/site/rst/static_reflection/releases/staticReflection-0.1.1.phar" />
           <root url="phar://$MODULE_DIR$/composer.phar" />
         </SOURCES>
       </library>
@@ -25,18 +19,10 @@
     <orderEntry type="module-library">
       <library name="PHP">
         <CLASSES>
-          <root url="file://$MODULE_DIR$/vendor/php-activerecord/php-activerecord" />
-          <root url="file://$MODULE_DIR$/vendor/squizlabs/php_codesniffer" />
           <root url="file://$MODULE_DIR$/vendor/composer" />
-          <root url="file://$MODULE_DIR$/vendor/phpmd/phpmd" />
-          <root url="file://$MODULE_DIR$/vendor/pdepend/pdepend" />
         </CLASSES>
         <SOURCES>
-          <root url="file://$MODULE_DIR$/vendor/php-activerecord/php-activerecord" />
-          <root url="file://$MODULE_DIR$/vendor/squizlabs/php_codesniffer" />
           <root url="file://$MODULE_DIR$/vendor/composer" />
-          <root url="file://$MODULE_DIR$/vendor/phpmd/phpmd" />
-          <root url="file://$MODULE_DIR$/vendor/pdepend/pdepend" />
         </SOURCES>
       </library>
     </orderEntry>

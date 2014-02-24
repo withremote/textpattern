@@ -29,16 +29,28 @@ if (!defined('TXP_INSTALL'))
 @ignore_user_abort(1);
 @set_time_limit(0);
 
-mysql_connect($dhost, $duser, $dpass, false, $dclient_flags);
-mysql_select_db($ddb);
+try {
 
-$result = mysql_query("describe `".PFX."textpattern`");
-if ($result)
-{
-	die("Textpattern database table already exists. Can't run setup.");
+    $dsn = 'mysql:dbname='.$ddb.';host='.$dhost;
+    $dbPDO = new PDO($dsn, $duser, $dpass);
+    $dbPDO->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+} catch(PDOException $ex) {
+
+    die($ex->getMessage());
 }
 
-$version = mysql_get_server_info();
+try {
+    $result = $dbPDO->exec("describe `".PFX."textpattern`");
+    if ($result)
+    {
+        die("Textpattern database table already exists. Can't run setup.");
+    }
+} catch (PDOException $ex) {
+    /** continue on, texpattern table does not exist */
+}
+
+$version = $dbPDO->getAttribute(PDO::ATTR_SERVER_VERSION);
 
 // Use "ENGINE" if version of MySQL > (4.0.18 or 4.1.2).
 $tabletype = (intval($version[0]) >= 5 || preg_match('#^4\.(0\.[2-9]|(1[89]))|(1\.[2-9])#', $version))
@@ -53,7 +65,8 @@ if (isset($dbcharset) && (intval($version[0]) >= 5 || preg_match('#^4\.[1-9]#', 
 	{
 		$tabletype .= " COLLATE utf8_general_ci ";
 	}
-	mysql_query("SET NAMES ".$dbcharset);
+
+	$dbPDO->query("SET NAMES ".$dbcharset);
 }
 
 // Default to messy URLs if we know clean ones won't work.
@@ -79,65 +92,22 @@ else
 
 $name = ps('name') ? ps('name') : 'anon';
 
+$GLOBALS['txp_install_successful'] = true;
+$GLOBALS['txp_err_count'] = 0;
+
+/** create tables */
+txpUp($dbPDO, $tabletype);
+
 $create_sql = array();
 
-$create_sql[] = "CREATE TABLE `".PFX."textpattern` (
-  `ID` int(11) NOT NULL auto_increment,
-  `Posted` datetime NOT NULL default '0000-00-00 00:00:00',
-  `AuthorID` varchar(64) NOT NULL default '',
-  `LastMod` datetime NOT NULL default '0000-00-00 00:00:00',
-  `LastModID` varchar(64) NOT NULL default '',
-  `Title` varchar(255) NOT NULL default '',
-  `Title_html` varchar(255) NOT NULL default '',
-  `Body` mediumtext NOT NULL,
-  `Body_html` mediumtext NOT NULL,
-  `Excerpt` text NOT NULL,
-  `Excerpt_html` mediumtext NOT NULL,
-  `Image` varchar(255) NOT NULL default '',
-  `Category1` varchar(128) NOT NULL default '',
-  `Category2` varchar(128) NOT NULL default '',
-  `Annotate` int(2) NOT NULL default '0',
-  `AnnotateInvite` varchar(255) NOT NULL default '',
-  `comments_count` int(8) NOT NULL default '0',
-  `Status` int(2) NOT NULL default '4',
-  `textile_body` int(2) NOT NULL default '1',
-  `textile_excerpt` int(2) NOT NULL default '1',
-  `Section` varchar(64) NOT NULL default '',
-  `override_form` varchar(255) NOT NULL default '',
-  `Keywords` varchar(255) NOT NULL default '',
-  `url_title` varchar(255) NOT NULL default '',
-  `custom_1` varchar(255) NOT NULL default '',
-  `custom_2` varchar(255) NOT NULL default '',
-  `custom_3` varchar(255) NOT NULL default '',
-  `custom_4` varchar(255) NOT NULL default '',
-  `custom_5` varchar(255) NOT NULL default '',
-  `custom_6` varchar(255) NOT NULL default '',
-  `custom_7` varchar(255) NOT NULL default '',
-  `custom_8` varchar(255) NOT NULL default '',
-  `custom_9` varchar(255) NOT NULL default '',
-  `custom_10` varchar(255) NOT NULL default '',
-  `uid` varchar(32) NOT NULL default '',
-  `feed_time` date NOT NULL default '0000-00-00',
-  PRIMARY KEY  (`ID`),
-  KEY `categories_idx` (`Category1`(10),`Category2`(10)),
-  KEY `Posted` (`Posted`),
-  FULLTEXT KEY `searching` (`Title`,`Body`)
-) $tabletype PACK_KEYS=1 AUTO_INCREMENT=2 ";
-
-$setup_comment_invite = doSlash((gTxt('setup_comment_invite')=='setup_comment_invite') ? 'Comment' : gTxt('setup_comment_invite'));
-$create_sql[] = "INSERT INTO `".PFX."textpattern` VALUES (1, now(), '".doSlash($name)."', now(), '', 'Welcome to your site', '', 'h3. What do you want to do next?\n\n* Modify or even delete this article? The \"article list\":siteurl/textpattern/index.php?event=list is the place to start.\n* Change this site\'s name, or modify the style of the URLs? It\'s all up to your \"preferences\":siteurl/textpattern/index.php?event=prefs.\n* Get yourself acquainted with Textile, the humane web text generator which comes with Textpattern? The basics are \"simple\":http://textpattern.com/textile-sandbox. If you want to learn more about Textile, you can dig into an \"extensive manual\":http://textpattern.com/textile-reference-manual later.\n* Be guided through your \"Textpattern first steps\":http://textpattern.com/textpattern-first-steps by completing some basic tasks?\n* Study the \"Textpattern Semantic Model?\":http://textpattern.com/textpattern-semantic-model\n* Add \"another user\":siteurl/textpattern/index.php?event=admin, or extend the capabilities with \"third party plugins\":siteurl/textpattern/index.php?event=plugin you discovered from the central plugin directory at \"Textpattern Resources\":http://textpattern.org/?\n* Dive in and learn by trial and error? Then please note:\n** When you \"write\":siteurl/textpattern/index.php?event=article an article you assign it to a section of your site.\n** Sections use a \"page template\":siteurl/textpattern/index.php?event=page and a \"style\":siteurl/textpattern/index.php?event=css as an output scaffold.\n** Page templates use HTML and Textpattern tags (like this: @<txp:article />@) to build the markup.\n** Some Textpattern tags use \"forms\":siteurl/textpattern/index.php?event=form, which are building blocks for reusable snippets of code and markup you may build and use at your discretion.\n\nThere are a host of \"Frequently Asked Questions\":http://textpattern.com/faq/ to help you get started.\n\n\"Textpattern tags\":http://textpattern.com/textpattern-tag-reference, their attributes and values are explained and sampled within the \"Textpattern User Documentation\":http://textpattern.net/, where you will also find valuable tips and tutorials.\n\nIf all else fails, there\'s a whole crowd of friendly, helpful people over at the \"Textpattern support forum\":http://forum.textpattern.com/. Come and pay a visit!\n', '\t<h3>What do you want to do next?</h3>\n\n\t<ul>\n\t\t<li>Modify or even delete this article? The <a href=\"siteurl/textpattern/index.php?event=list\">article list</a> is the place to start.</li>\n\t\t<li>Change this site&#8217;s name, or modify the style of the <span class=\"caps\">URL</span>s? It&#8217;s all up to your <a href=\"siteurl/textpattern/index.php?event=prefs\">preferences</a>.</li>\n\t\t<li>Get yourself acquainted with Textile, the humane web text generator which comes with Textpattern? The basics are <a href=\"http://textpattern.com/textile-sandbox\">simple</a>. If you want to learn more about Textile, you can dig into an <a href=\"http://textpattern.com/textile-reference-manual\">extensive manual</a> later.</li>\n\t\t<li>Be guided through your <a href=\"http://textpattern.com/textpattern-first-steps\">Textpattern first steps</a> by completing some basic tasks?</li>\n\t\t<li>Study the <a href=\"http://textpattern.com/textpattern-semantic-model\">Textpattern Semantic Model?</a></li>\n\t\t<li>Add <a href=\"siteurl/textpattern/index.php?event=admin\">another user</a>, or extend the capabilities with <a href=\"siteurl/textpattern/index.php?event=plugin\">third party plugins</a> you discovered from the central plugin directory at <a href=\"http://textpattern.org/\">Textpattern Resources</a>?</li>\n\t\t<li>Dive in and learn by trial and error? Then please note:\n\t<ul>\n\t\t<li>When you <a href=\"siteurl/textpattern/index.php?event=article\">write</a> an article you assign it to a section of your site.</li>\n\t\t<li>Sections use a <a href=\"siteurl/textpattern/index.php?event=page\">page template</a> and a <a href=\"siteurl/textpattern/index.php?event=css\">style</a> as an output scaffold.</li>\n\t\t<li>Page templates use <span class=\"caps\">HTML</span> and Textpattern tags (like this: <code>&lt;txp:article /&gt;</code>) to build the markup.</li>\n\t\t<li>Some Textpattern tags use <a href=\"siteurl/textpattern/index.php?event=form\">forms</a>, which are building blocks for reusable snippets of code and markup you may build and use at your discretion.</li>\n\t</ul></li>\n\t</ul>\n\n\t<p>There are a host of <a href=\"http://textpattern.com/faq/\">Frequently Asked Questions</a> to help you get started.</p>\n\n\t<p><a href=\"http://textpattern.com/textpattern-tag-reference\">Textpattern tags</a>, their attributes and values are explained and sampled within the <a href=\"http://textpattern.net/\">Textpattern User Documentation</a>, where you will also find valuable tips and tutorials.</p>\n\n\t<p>If all else fails, there&#8217;s a whole crowd of friendly, helpful people over at the <a href=\"http://forum.textpattern.com/\">Textpattern support forum</a>. Come and pay a visit!</p>', '', '', '', 'hope-for-the-future', 'meaningful-labor', 1, '".$setup_comment_invite."', 1, 4, 1, 1, 'articles', '', '', 'welcome-to-your-site', '', '', '', '', '', '', '', '', '', '', '".md5(uniqid(rand(), true))."', now())";
-
-
-$create_sql[] = "CREATE TABLE `".PFX."txp_category` (
-  `id` int(6) NOT NULL auto_increment,
-  `name` varchar(64) NOT NULL default '',
-  `type` varchar(64) NOT NULL default '',
-  `parent` varchar(64) NOT NULL default '',
-  `lft` int(6) NOT NULL default '0',
-  `rgt` int(6) NOT NULL default '0',
-  `title` varchar(255) NOT NULL default '',
-  PRIMARY KEY  (`id`)
-) $tabletype PACK_KEYS=1";
+$setup_comment_invite = (gTxt('setup_comment_invite')=='setup_comment_invite') ? 'Comment' : gTxt('setup_comment_invite');
+$create_sql[] = array(
+    "INSERT INTO `".PFX."textpattern` VALUES (1, now(), :name, now(), '', 'Welcome to your site', '', 'h3. What do you want to do next?\n\n* Modify or even delete this article? The \"article list\":siteurl/textpattern/index.php?event=list is the place to start.\n* Change this site\'s name, or modify the style of the URLs? It\'s all up to your \"preferences\":siteurl/textpattern/index.php?event=prefs.\n* Get yourself acquainted with Textile, the humane web text generator which comes with Textpattern? The basics are \"simple\":http://textpattern.com/textile-sandbox. If you want to learn more about Textile, you can dig into an \"extensive manual\":http://textpattern.com/textile-reference-manual later.\n* Be guided through your \"Textpattern first steps\":http://textpattern.com/textpattern-first-steps by completing some basic tasks?\n* Study the \"Textpattern Semantic Model?\":http://textpattern.com/textpattern-semantic-model\n* Add \"another user\":siteurl/textpattern/index.php?event=admin, or extend the capabilities with \"third party plugins\":siteurl/textpattern/index.php?event=plugin you discovered from the central plugin directory at \"Textpattern Resources\":http://textpattern.org/?\n* Dive in and learn by trial and error? Then please note:\n** When you \"write\":siteurl/textpattern/index.php?event=article an article you assign it to a section of your site.\n** Sections use a \"page template\":siteurl/textpattern/index.php?event=page and a \"style\":siteurl/textpattern/index.php?event=css as an output scaffold.\n** Page templates use HTML and Textpattern tags (like this: @<txp:article />@) to build the markup.\n** Some Textpattern tags use \"forms\":siteurl/textpattern/index.php?event=form, which are building blocks for reusable snippets of code and markup you may build and use at your discretion.\n\nThere are a host of \"Frequently Asked Questions\":http://textpattern.com/faq/ to help you get started.\n\n\"Textpattern tags\":http://textpattern.com/textpattern-tag-reference, their attributes and values are explained and sampled within the \"Textpattern User Documentation\":http://textpattern.net/, where you will also find valuable tips and tutorials.\n\nIf all else fails, there\'s a whole crowd of friendly, helpful people over at the \"Textpattern support forum\":http://forum.textpattern.com/. Come and pay a visit!\n', '\t<h3>What do you want to do next?</h3>\n\n\t<ul>\n\t\t<li>Modify or even delete this article? The <a href=\"siteurl/textpattern/index.php?event=list\">article list</a> is the place to start.</li>\n\t\t<li>Change this site&#8217;s name, or modify the style of the <span class=\"caps\">URL</span>s? It&#8217;s all up to your <a href=\"siteurl/textpattern/index.php?event=prefs\">preferences</a>.</li>\n\t\t<li>Get yourself acquainted with Textile, the humane web text generator which comes with Textpattern? The basics are <a href=\"http://textpattern.com/textile-sandbox\">simple</a>. If you want to learn more about Textile, you can dig into an <a href=\"http://textpattern.com/textile-reference-manual\">extensive manual</a> later.</li>\n\t\t<li>Be guided through your <a href=\"http://textpattern.com/textpattern-first-steps\">Textpattern first steps</a> by completing some basic tasks?</li>\n\t\t<li>Study the <a href=\"http://textpattern.com/textpattern-semantic-model\">Textpattern Semantic Model?</a></li>\n\t\t<li>Add <a href=\"siteurl/textpattern/index.php?event=admin\">another user</a>, or extend the capabilities with <a href=\"siteurl/textpattern/index.php?event=plugin\">third party plugins</a> you discovered from the central plugin directory at <a href=\"http://textpattern.org/\">Textpattern Resources</a>?</li>\n\t\t<li>Dive in and learn by trial and error? Then please note:\n\t<ul>\n\t\t<li>When you <a href=\"siteurl/textpattern/index.php?event=article\">write</a> an article you assign it to a section of your site.</li>\n\t\t<li>Sections use a <a href=\"siteurl/textpattern/index.php?event=page\">page template</a> and a <a href=\"siteurl/textpattern/index.php?event=css\">style</a> as an output scaffold.</li>\n\t\t<li>Page templates use <span class=\"caps\">HTML</span> and Textpattern tags (like this: <code>&lt;txp:article /&gt;</code>) to build the markup.</li>\n\t\t<li>Some Textpattern tags use <a href=\"siteurl/textpattern/index.php?event=form\">forms</a>, which are building blocks for reusable snippets of code and markup you may build and use at your discretion.</li>\n\t</ul></li>\n\t</ul>\n\n\t<p>There are a host of <a href=\"http://textpattern.com/faq/\">Frequently Asked Questions</a> to help you get started.</p>\n\n\t<p><a href=\"http://textpattern.com/textpattern-tag-reference\">Textpattern tags</a>, their attributes and values are explained and sampled within the <a href=\"http://textpattern.net/\">Textpattern User Documentation</a>, where you will also find valuable tips and tutorials.</p>\n\n\t<p>If all else fails, there&#8217;s a whole crowd of friendly, helpful people over at the <a href=\"http://forum.textpattern.com/\">Textpattern support forum</a>. Come and pay a visit!</p>', '', '', '', 'hope-for-the-future', 'meaningful-labor', 1, :AnnotateInvite, 1, 4, 1, 1, 'articles', '', '', 'welcome-to-your-site', '', '', '', '', '', '', '', '', '', '', '".md5(uniqid(rand(), true))."', now())",
+    array(
+        ':name' => $name,
+        ':AnnotateInvite' => $setup_comment_invite
+    )
+);
 
 $create_sql[] = "INSERT INTO `".PFX."txp_category` VALUES (1, 'root', 'article', '', 1, 8, 'root')";
 $create_sql[] = "INSERT INTO `".PFX."txp_category` VALUES (2, 'root', 'link', '', 1, 4, 'root')";
@@ -148,67 +118,12 @@ $create_sql[] = "INSERT INTO `".PFX."txp_category` VALUES (6, 'meaningful-labor'
 $create_sql[] = "INSERT INTO `".PFX."txp_category` VALUES (7, 'reciprocal-affection', 'article', 'root', 6, 7, 'Reciprocal affection')";
 $create_sql[] = "INSERT INTO `".PFX."txp_category` VALUES (8, 'textpattern', 'link', 'root', 2, 3, 'Textpattern')";
 
-
-$create_sql[] = "CREATE TABLE `".PFX."txp_css` (
-  `name` varchar(255) NOT NULL,
-  `css` text NOT NULL,
-  UNIQUE KEY `name` (`name`)
-) $tabletype ";
-
 // sql:txp_css
 $create_sql[] = "INSERT INTO `".PFX."txp_css`(`name`,`css`) VALUES('default', '/* ==========================================================================\n   Styling and layout for all media\n   ========================================================================== */\n/* correct block display not defined in IE8-9 */\narticle,\naside,\ndetails,\nfigcaption,\nfigure,\nfooter,\nheader,\nmain,\nnav,\nsection,\nsummary {\n  display: block;\n}\n\n/* correct `<summary>` not showing as clickable */\nsummary {\n  cursor: pointer;\n}\n\n/* address `[hidden]` styling not present in IE8-9.\n   hide the `template` element in IE, Safari, and Firefox < 22 */\n[hidden],\ntemplate {\n  display: none;\n}\n\n/* Clearfix\n   ========================================================================== */\n/* http://nicolasgallagher.com/micro-clearfix-hack/ */\nheader:after,\nfooter:after,\nnav ul:after,\nnav ol:after,\n.clearfix:after,\n.container:after,\n.paginator:after {\n  content: \"\";\n  display: table;\n  clear: both;\n}\n\n/* ==========================================================================\n   Styling and layout for screen media (mobile first)\n   ========================================================================== */\n@media screen {\n  /* Layout\n     ========================================================================== */\n  html {\n    -webkit-tap-highlight-color: rgba(0, 102, 255, 0.5);\n    /* always force scrollbar padding so we don\'t get \'jumping\' */\n    overflow-y: scroll;\n    /* prevent iOS text size adjust after orientation change, without disabling user zoom */\n    -webkit-text-size-adjust: 100%;\n    /* as above, for Windows Phone */\n    -ms-text-size-adjust: 100%;\n  }\n\n  body {\n    margin: 0;\n    background: #f7f7f7;\n  }\n\n  .wrapper {\n    border-top: 1px solid #cccccc;\n    border-bottom: 1px solid #cccccc;\n    padding: 1px 0 1em;\n    background: white;\n  }\n\n  header,\n  footer,\n  .container {\n    margin: 0 auto;\n    /* 960px / 1024px */\n    width: 93.75%;\n    max-width: 86em;\n  }\n\n  header {\n    padding: 1em 0;\n  }\n  header h1 {\n    margin: 0;\n  }\n  header h3 {\n    /* 16px margin top */\n    margin: 0.66667em 0 0;\n  }\n\n  .site-navigation {\n    background-color: #dddddd;\n  }\n  .site-navigation ul {\n    margin: 0 auto;\n    padding: 0;\n    max-width: 86em;\n    list-style: none;\n  }\n  .site-navigation li {\n    -webkit-transition: box-shadow 0.2s linear;\n    -moz-transition: box-shadow 0.2s linear;\n    -o-transition: box-shadow 0.2s linear;\n    transition: box-shadow 0.2s linear;\n    border-top: 1px solid #cccccc;\n    background-color: #eeeeee;\n  }\n  .site-navigation li:hover {\n    background-color: #f8f8f8;\n  }\n  .site-navigation li:active {\n    -webkit-box-shadow: inset 0 0.2em 0.25em rgba(0, 0, 0, 0.15);\n    -moz-box-shadow: inset 0 0.2em 0.25em rgba(0, 0, 0, 0.15);\n    box-shadow: inset 0 0.2em 0.25em rgba(0, 0, 0, 0.15);\n    background-color: lightgrey;\n  }\n  .site-navigation li.active {\n    -webkit-box-shadow: none;\n    -moz-box-shadow: none;\n    box-shadow: none;\n    background-color: white;\n  }\n  .site-navigation a {\n    display: block;\n    padding: 0.5em 3.125%;\n    color: #333333;\n  }\n  .site-navigation a:hover, .site-navigation a:visited {\n    color: #333333;\n    text-decoration: none;\n  }\n  .site-navigation a:active {\n    color: #1a1a1a;\n    text-decoration: none;\n  }\n\n  [role=\"article\"] {\n    margin-bottom: 2em;\n    word-wrap: break-word;\n  }\n\n  [role=\"complementary\"] {\n    margin: 2em 0;\n    border-top: 2px dashed #cccccc;\n    padding-top: 1em;\n    word-wrap: break-word;\n  }\n\n  [role=\"search\"] p {\n    margin-top: 0;\n  }\n\n  footer {\n    padding: 0.5em 0;\n  }\n\n  /* address differences between Firefox and other browsers */\n  hr {\n    -webkit-box-sizing: content-box;\n    -moz-box-sizing: content-box;\n    box-sizing: content-box;\n    border: 0;\n    border-bottom: 1px solid #cccccc;\n    height: 0;\n  }\n\n  /* Links\n     ========================================================================== */\n  a {\n    text-decoration: none;\n    color: #114eb1;\n    background: transparent;\n  }\n  a:hover, a:active {\n    /* improve readability when focused and also mouse hovered in all browsers */\n    outline: 0;\n    text-decoration: underline;\n    color: #0066ff;\n  }\n  a:focus {\n    outline: thin dotted #0066ff;\n  }\n  a:visited {\n    color: #183082;\n  }\n  header a {\n    -webkit-border-radius: 0.125em;\n    -moz-border-radius: 0.125em;\n    border-radius: 0.125em;\n    color: #333333;\n  }\n  header a:hover, header a:active {\n    background: #e8e8e8;\n  }\n\n  h1 a {\n    -webkit-border-radius: 0.125em;\n    -moz-border-radius: 0.125em;\n    border-radius: 0.125em;\n    color: #333333;\n  }\n  h1 a:visited {\n    color: #333333;\n  }\n  h1 a:hover, h1 a:active {\n    text-decoration: none;\n    color: #333333;\n    background: #ededed;\n  }\n\n  .paginator {\n    margin-bottom: 2em;\n  }\n  .paginator [rel=\"prev\"] {\n    float: left;\n  }\n  .paginator [rel=\"next\"] {\n    float: right;\n  }\n\n  /* Typography\n     ========================================================================== */\n  html {\n    font-size: 100%;\n    line-height: 1.5em;\n  }\n\n  body {\n    font-family: \"PT Serif\", Georgia, serif;\n    color: #333333;\n  }\n\n  .site-navigation {\n    font-family: sans-serif;\n    font-weight: bold;\n  }\n\n  h1,\n  h2,\n  h3,\n  h4,\n  h5,\n  h6 {\n    clear: both;\n    font-family: sans-serif;\n  }\n\n  h1 {\n    font-size: 2.5em;\n    line-height: 1.2em;\n    margin: 0.6em 0;\n  }\n\n  h2 {\n    font-size: 2em;\n    line-height: 1.25em;\n    margin: 0.75em 0;\n  }\n\n  h3 {\n    font-size: 1.5em;\n    line-height: 1.3333333em;\n    margin: 1em 0;\n  }\n\n  h4 {\n    font-size: 1.25em;\n    line-height: 1.4em;\n    margin: 1em 0;\n  }\n\n  h5 {\n    font-size: 1.125em;\n    line-height: 1.44em;\n    margin: 1em 0;\n  }\n\n  h6 {\n    font-size: 1em;\n    line-height: 1.5em;\n    margin: 1em 0;\n  }\n\n  /* address style set to `bolder` in Firefox4+, Safari5, and Chrome */\n  b,\n  strong {\n    font-weight: bold;\n  }\n\n  address {\n    margin: 1em 0;\n  }\n\n  blockquote {\n    font-size: 1.125em;\n    line-height: 1.44em;\n    font-style: italic;\n    /* 16px / 18px */\n    margin: 0.88889em 0;\n    border-left: 3px solid #cccccc;\n    padding: 0 0 0 0.88889em;\n  }\n\n  /* address styling not present in Safari5 and Chrome */\n  dfn {\n    font-style: italic;\n  }\n\n  /* address styling not present in IE8-9, Safari5, Chrome */\n  abbr[title],\n  dfn[title] {\n    border-bottom: 1px dotted;\n    cursor: help;\n  }\n\n  mark,\n  var {\n    -webkit-border-radius: 0.25em;\n    -moz-border-radius: 0.25em;\n    border-radius: 0.25em;\n    padding: 0 0.25em;\n    color: #333333;\n    background: #e3edfc;\n  }\n\n  pre,\n  code,\n  kbd,\n  samp {\n    font-family: Menlo, Consolas, Monaco, monospace;\n  }\n\n  code,\n  kbd,\n  samp {\n    font-size: 0.875em;\n    line-height: 1.5em;\n    -webkit-border-radius: 0.2857143em;\n    -moz-border-radius: 0.2857143em;\n    border-radius: 0.2857143em;\n    border: 1px solid #e3e3e3;\n    /* 2px / 14px + 3px / 14px */\n    padding: 1px 0.21429em;\n    background: #f7f7f7;\n  }\n\n  pre {\n    font-size: 0.875em;\n    line-height: 1.5em;\n    -webkit-border-radius: 0.2857143em;\n    -moz-border-radius: 0.2857143em;\n    border-radius: 0.2857143em;\n    word-wrap: normal;\n    overflow-x: auto;\n    border: 1px solid #e3e3e3;\n    padding: 0.5714286em 1.1428571em;\n    background: #f7f7f7;\n    /* set tab size to 4 spaces */\n    tab-size: 4;\n  }\n  pre code {\n    font-size: 1em;\n    border: 0;\n    padding: 0;\n    background: none;\n  }\n\n  /* prevent `<sub>` and `<sup>` affecting line height in all browsers */\n  sub,\n  sup.footnote,\n  sup {\n    font-size: 0.625em;\n    line-height: 0em;\n    position: relative;\n    vertical-align: baseline;\n  }\n\n  sup {\n    top: -0.5em;\n  }\n\n  sub {\n    bottom: -0.25em;\n  }\n\n  small,\n  figcaption,\n  tfoot,\n  .footnote {\n    font-size: 0.75em;\n    line-height: 1.5em;\n  }\n\n  figcaption,\n  tfoot,\n  .footnote {\n    color: #888888;\n  }\n\n  figcaption {\n    margin-top: 0.5em;\n    font-style: italic;\n  }\n\n  /* Support for non-latin languages (can be removed if not required)\n     ========================================================================== */\n  html[lang=\"ja-jp\"] {\n    font-family: \"Hiragino Kaku Gothic Pro\", Meiryo, sans-serif;\n  }\n\n  html[lang=\"ko-kr\"] {\n    font-family: GulimChe, Gulim, sans-serif;\n  }\n\n  html[lang=\"zh-cn\"] {\n    font-family: SimHei, sans-serif;\n  }\n\n  html[lang=\"zh-tw\"] {\n    font-family: PMingLiU, sans-serif;\n  }\n\n  /* Embedded content\n     ========================================================================== */\n  /* remove the gap between images, videos, audio and canvas and the bottom of their containers */\n  audio,\n  canvas,\n  img,\n  video {\n    vertical-align: middle;\n  }\n\n  /* correct `inline-block` display not defined in IE8-9 */\n  audio,\n  canvas,\n  video {\n    display: inline-block;\n  }\n\n  /* make embedded elements responsive */\n  img,\n  embed,\n  object,\n  video {\n    max-width: 100%;\n    height: auto;\n  }\n\n  img {\n    /* remove border when inside `<a>` element in IE8-9 */\n    border: 0;\n  }\n  img.align-left {\n    float: left;\n    margin: 1em 1em 1em 0;\n  }\n  img.align-right {\n    float: right;\n    margin: 1em 0 1em 1em;\n  }\n  img.align-center {\n    display: block;\n    margin: 1em auto;\n  }\n\n  /* address margin not present in IE8-9 and Safari5 */\n  figure {\n    margin: 0;\n  }\n\n  /* prevent modern browsers from displaying `<audio>` without controls, remove excess height in iOS5 devices */\n  audio:not([controls]) {\n    display: none;\n    height: 0;\n  }\n\n  /* correct overflow displayed oddly in IE9 */\n  svg:not(:root) {\n    overflow: hidden;\n  }\n\n  /* Tables\n     ========================================================================== */\n  /* consistent tables */\n  table {\n    margin-bottom: 1em;\n    border-collapse: collapse;\n    border-spacing: 0;\n    width: 100%;\n  }\n\n  caption {\n    font-style: italic;\n    text-align: left;\n    margin-bottom: 0.5em;\n  }\n\n  th,\n  td {\n    /* make table cells align top and left by default */\n    vertical-align: top;\n    text-align: left;\n    border-bottom: 1px solid #cccccc;\n    padding: 0.25em;\n  }\n\n  thead tr:first-child th,\n  thead tr:first-child td {\n    padding-top: 0;\n  }\n  thead tr:last-child th,\n  thead tr:last-child td {\n    border-bottom: 2px solid #cccccc;\n  }\n\n  tfoot th,\n  tfoot td {\n    padding: 0.3333333em;\n  }\n  tfoot tr:last-child th,\n  tfoot tr:last-child td {\n    border-bottom: 0;\n    padding-bottom: 0;\n  }\n\n  tbody tr:first-child td,\n  tbody tr:first-child th {\n    border-top: 1px solid #cccccc;\n  }\n\n  /* vertical cell alignment */\n  [rowspan] {\n    vertical-align: middle;\n  }\n\n  /* Lists\n     ========================================================================== */\n  /* address paddings set differently */\n  menu,\n  ol,\n  ul {\n    padding: 0 0 0 2em;\n  }\n\n  /* remove margins from nested lists */\n  li > ul,\n  li > ol {\n    margin: 0;\n  }\n\n  dd {\n    margin: 0 0 0 2em;\n  }\n\n  dt {\n    font-style: italic;\n  }\n\n  .article-list {\n    list-style: none;\n    margin: 0 0 2em 0;\n    border-top: 1px solid #cccccc;\n    padding: 0;\n  }\n  .article-list li {\n    margin-bottom: 0;\n    border-bottom: 1px solid #cccccc;\n  }\n\n  /* Forms\n     ========================================================================== */\n  /* zero out fieldsets */\n  fieldset {\n    margin: 0;\n    border: 0;\n    padding: 0;\n  }\n\n  /* zero out legends */\n  legend {\n    border: 0;\n    padding: 0;\n  }\n\n  button,\n  input,\n  select,\n  textarea {\n    -webkit-box-sizing: border-box;\n    -moz-box-sizing: border-box;\n    box-sizing: border-box;\n    /* correct font size not being inherited in all browsers */\n    font-size: 100%;\n    font-size: 0.875em;\n    line-height: 1.5em;\n    /* address margins set differently in Firefox4+, Safari5+, and Chrome */\n    margin: 0;\n    font-family: sans-serif;\n    vertical-align: baseline;\n  }\n\n  /* colour placeholder text */\n  input ::-webkit-input-placeholder,\n  textarea ::-webkit-input-placeholder {\n    color: #888888;\n  }\n  input :-moz-placeholder,\n  textarea :-moz-placeholder {\n    color: #888888;\n  }\n  input :-ms-input-placeholder,\n  textarea :-ms-input-placeholder {\n    color: #888888;\n  }\n\n  /* remove inner padding and border in Firefox 4+ */\n  button::-moz-focus-inner,\n  input::-moz-focus-inner {\n    border: 0;\n    padding: 0;\n  }\n\n  /* remove inner padding and search cancel button in Safari5+ and Chrome on OS X */\n  input[type=\"search\"]::-webkit-search-cancel-button,\n  input[type=\"search\"]::-webkit-search-decoration {\n    -webkit-appearance: none;\n  }\n\n  input[type=\"color\"],\n  input[type=\"date\"],\n  input[type=\"datetime\"],\n  input[type=\"datetime-local\"],\n  input[type=\"email\"],\n  input[type=\"month\"],\n  input[type=\"number\"],\n  input[type=\"password\"],\n  input[type=\"search\"],\n  input[type=\"tel\"],\n  input[type=\"text\"],\n  input[type=\"time\"],\n  input[type=\"url\"],\n  input[type=\"week\"],\n  select,\n  textarea {\n    -webkit-border-radius: 0;\n    -moz-border-radius: 0;\n    border-radius: 0;\n    -webkit-transition: box-shadow 0.2s linear;\n    -moz-transition: box-shadow 0.2s linear;\n    -o-transition: box-shadow 0.2s linear;\n    transition: box-shadow 0.2s linear;\n    /* remove iOS Safari default styling */\n    -webkit-appearance: none;\n    border: 1px solid #cccccc;\n    padding: 0.3571428em;\n    height: 2.3571428em;\n    background: #ffffff;\n    text-align: left;\n  }\n  input[type=\"color\"]:focus,\n  input[type=\"date\"]:focus,\n  input[type=\"datetime\"]:focus,\n  input[type=\"datetime-local\"]:focus,\n  input[type=\"email\"]:focus,\n  input[type=\"month\"]:focus,\n  input[type=\"number\"]:focus,\n  input[type=\"password\"]:focus,\n  input[type=\"search\"]:focus,\n  input[type=\"tel\"]:focus,\n  input[type=\"text\"]:focus,\n  input[type=\"time\"]:focus,\n  input[type=\"url\"]:focus,\n  input[type=\"week\"]:focus,\n  select:focus,\n  textarea:focus {\n    /* better form focus glows */\n    -webkit-box-shadow: 0 0 7px #0066ff;\n    -moz-box-shadow: 0 0 7px #0066ff;\n    box-shadow: 0 0 7px #0066ff;\n    outline: 0;\n  }\n\n  input[type=\"color\"] {\n    padding: 0;\n  }\n\n  /* address box sizing set to `content-box` and excess padding in IE8-9 */\n  input[type=\"checkbox\"],\n  input[type=\"radio\"] {\n    padding: 0;\n  }\n\n  [role=\"complementary\"] input[type=\"search\"] {\n    margin-right: 2px;\n    width: 66%;\n    display: inline-block;\n  }\n\n  /* address inconsistent `text-transform` inheritance for `select` in Firefox 4+ */\n  select {\n    text-transform: none;\n  }\n\n  select[size],\n  select[multiple] {\n    height: auto;\n  }\n\n  select[size=\"0\"],\n  select[size=\"1\"] {\n    height: 2.3571428em;\n  }\n\n  /* address `<select>` alignment in Safari/Chrome */\n  optgroup {\n    font-family: sans-serif;\n    font-style: normal;\n    font-weight: normal;\n    color: #333333;\n  }\n  optgroup::-moz-focus-inner {\n    border: 0;\n    padding: 0;\n  }\n\n  textarea {\n    height: auto;\n    min-height: 3em;\n    /* remove default vertical scrollbar in IE8-9 */\n    overflow: auto;\n    resize: vertical;\n    width: 100%;\n  }\n\n  /* make sure disable elements really are disabled */\n  button[disabled],\n  html input[disabled],\n  input[type=\"button\"][disabled],\n  input[type=\"reset\"][disabled],\n  input[type=\"submit\"][disabled],\n  select[disabled],\n  select[disabled] option,\n  select[disabled] optgroup,\n  textarea[disabled],\n  span.disabled {\n    -webkit-box-shadow: none !important;\n    -moz-box-shadow: none !important;\n    box-shadow: none !important;\n    opacity: 1;\n    border-color: #e3e3e3 !important;\n    color: #aaaaaa !important;\n    background: #eeeeee !important;\n    text-shadow: none !important;\n    cursor: default !important;\n  }\n\n  .large input {\n    width: 50%;\n    min-width: 302px;\n  }\n  .large textarea {\n    height: 156px;\n  }\n\n  .small input {\n    width: 25%;\n    min-width: 151px;\n  }\n  .small textarea {\n    height: 5.5em;\n  }\n\n  /* Buttons\n     ========================================================================== */\n  /* address inconsistent `text-transform` inheritance for `button` in Chrome, Safari5+, and IE6+ */\n  button {\n    text-transform: none;\n  }\n\n  button,\n  input[type=\"button\"],\n  input[type=\"reset\"],\n  input[type=\"submit\"] {\n    text-shadow: 1px 1px 0 rgba(255, 255, 255, 0.5);\n    -webkit-border-radius: 0.5em;\n    -moz-border-radius: 0.5em;\n    border-radius: 0.5em;\n    -webkit-box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25);\n    -moz-box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25);\n    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25);\n    -webkit-background-clip: padding;\n    -moz-background-clip: padding;\n    background-clip: padding-box;\n    background-color: #dddddd;\n    background-image: -webkit-linear-gradient(#eeeeee, #dddddd);\n    background-image: -moz-linear-gradient(#eeeeee, #dddddd);\n    background-image: -o-linear-gradient(#eeeeee, #dddddd);\n    background-image: linear-gradient(#eeeeee, #dddddd);\n    -webkit-transition: box-shadow 0.2s linear;\n    -moz-transition: box-shadow 0.2s linear;\n    -o-transition: box-shadow 0.2s linear;\n    transition: box-shadow 0.2s linear;\n    /* remove iOS Safari default styling */\n    -webkit-appearance: none;\n    display: inline-block;\n    border: 1px solid #cccccc;\n    padding: .3571428em .7142857em;\n    width: auto;\n    height: 2.3571428em;\n    overflow: visible;\n    font-weight: normal;\n    text-align: center;\n    color: #333333;\n    cursor: pointer;\n  }\n  button:hover,\n  input[type=\"button\"]:hover,\n  input[type=\"reset\"]:hover,\n  input[type=\"submit\"]:hover {\n    background-color: #e8e8e8;\n    background-image: -webkit-linear-gradient(#f8f8f8, #e8e8e8);\n    background-image: -moz-linear-gradient(#f8f8f8, #e8e8e8);\n    background-image: -o-linear-gradient(#f8f8f8, #e8e8e8);\n    background-image: linear-gradient(#f8f8f8, #e8e8e8);\n    border-color: #aaaaaa;\n    text-decoration: none;\n  }\n  button:active,\n  input[type=\"button\"]:active,\n  input[type=\"reset\"]:active,\n  input[type=\"submit\"]:active {\n    -webkit-box-shadow: inset 0 0.2em 0.25em rgba(0, 0, 0, 0.15);\n    -moz-box-shadow: inset 0 0.2em 0.25em rgba(0, 0, 0, 0.15);\n    box-shadow: inset 0 0.2em 0.25em rgba(0, 0, 0, 0.15);\n    background-color: #e4e4e4;\n    background-image: -webkit-linear-gradient(#d3d3d3, #e4e4e4);\n    background-image: -moz-linear-gradient(#d3d3d3, #e4e4e4);\n    background-image: -o-linear-gradient(#d3d3d3, #e4e4e4);\n    background-image: linear-gradient(#d3d3d3, #e4e4e4);\n    border-color: #aaaaaa;\n    color: #1a1a1a;\n  }\n  button:focus,\n  input[type=\"button\"]:focus,\n  input[type=\"reset\"]:focus,\n  input[type=\"submit\"]:focus {\n    /* better button focus glows */\n    -webkit-box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25), 0 0 7px #0066ff;\n    -moz-box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25), 0 0 7px #0066ff;\n    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25), 0 0 7px #0066ff;\n    outline: 0;\n  }\n\n  /* Comments\n     ========================================================================== */\n  .comments {\n    -webkit-border-radius: 0.5em;\n    -moz-border-radius: 0.5em;\n    border-radius: 0.5em;\n    margin-bottom: 1em;\n    padding: 1px 1em;\n    background: #f7f7f7;\n    word-wrap: break-word;\n  }\n  .comments h4 .is-author {\n    font-weight: normal;\n  }\n  .comments h4 .comment-anchor {\n    float: right;\n    font-weight: normal;\n  }\n\n  .comments-author {\n    background: #efefef;\n  }\n\n  #cpreview {\n    -webkit-border-radius: 0.5em;\n    -moz-border-radius: 0.5em;\n    border-radius: 0.5em;\n    margin-bottom: 2px;\n    padding: 1em;\n    background: #fff9e1;\n  }\n\n  .comments_error {\n    background: #f2dede !important;\n  }\n\n  .required,\n  .error_message li {\n    color: #9d261d;\n  }\n\n  .required {\n    cursor: help;\n  }\n\n  /* Popup comments (can be removed if you don\'t use popups)\n     ========================================================================== */\n  #popup-page .container {\n    max-width: 52em;\n  }\n}\n@media screen and (-webkit-min-device-pixel-ratio: 0) {\n  select[size],\n  select[multiple],\n  select[multiple][size] {\n    padding-right: .5em;\n    background-image: none;\n  }\n\n  select,\n  select[size=\"0\"],\n  select[size=\"1\"] {\n    padding-right: 2.25em;\n    background: white url(\"data:image/svg+xml,<svg version=\'1.1\' baseProfile=\'full\' xmlns=\'http://www.w3.org/2000/svg\' xmlns:xlink=\'http://www.w3.org/1999/xlink\' x=\'0px\' y=\'0px\' width=\'21px\' height=\'7px\' viewBox=\'0 0 21 7\' enable-background=\'new 0 0 21 7\' xml:space=\'preserve\'><polygon fill=\'#333333\' points=\'2,0 7,7 12,0\'/></svg>\") no-repeat right center;\n    background-size: 1.5em .5em;\n  }\n}\n/* ==========================================================================\n   Additional layout for screen media 576px and up\n   ========================================================================== */\n@media only screen and (min-width: 36em) {\n  .site-navigation {\n    border-top: 1px solid #cccccc;\n  }\n  .site-navigation ul {\n    width: 93.75%;\n  }\n  .site-navigation li {\n    float: left;\n    border-top: 0;\n    border-right: 1px solid #cccccc;\n  }\n  .site-navigation li:first-child {\n    border-left: 1px solid #cccccc;\n  }\n  .site-navigation a {\n    padding: 0.5em 1em;\n  }\n}\n/* ==========================================================================\n   Additional layout for screen media 864px and up\n   ========================================================================== */\n@media only screen and (min-width: 54em) {\n  main {\n    float: left;\n    width: 62.5%;\n  }\n\n  [role=\"complementary\"] {\n    -webkit-border-radius: 0.5em;\n    -moz-border-radius: 0.5em;\n    border-radius: 0.5em;\n    float: right;\n    border: 1px solid #e3e3e3;\n    padding: 0 1em;\n    width: 30%;\n    background: #f7f7f7;\n  }\n}\n/* ==========================================================================\n   Additional layout for screen media 1280px and up\n   ========================================================================== */\n@media only screen and (min-width: 82em) {\n  header,\n  footer,\n  .container {\n    width: 93.75%;\n  }\n}\n/* ==========================================================================\n   Styling and layout for print media\n   ========================================================================== */\n@media print {\n  * {\n    -webkit-box-shadow: none !important;\n    -moz-box-shadow: none !important;\n    box-shadow: none !important;\n    /* black prints faster */\n    color: black !important;\n    text-shadow: none !important;\n    background: transparent !important;\n  }\n\n  body {\n    font-family: \"Helvetica Neue\", sans-serif;\n    font-size: 8pt;\n    line-height: 1.5;\n    margin: 0.5cm;\n    padding: 2em 5em;\n  }\n\n  header {\n    border-bottom: 1pt solid black;\n  }\n\n  footer {\n    margin-top: 12pt;\n    border-top: 1pt solid black;\n  }\n\n  /* hide unnecessary content from print */\n  nav,\n  audio,\n  video,\n  form,\n  [role=\"complementary\"],\n  #comments-form,\n  .comments h4 a:last-child,\n  .paginator {\n    display: none;\n  }\n\n  a {\n    text-decoration: none;\n  }\n\n  /* show URLs for certain links in print */\n  a[href]:after {\n    content: \" (\" attr(href) \")\";\n  }\n\n  h1 a[href]:after,\n  h2 a[href]:after,\n  h3 a[href]:after,\n  h4 a[href]:after,\n  h5 a[href]:after,\n  h6 a[href]:after,\n  sup a[href]:after,\n  a[itemprop=\"discussionUrl\"]:after,\n  a[rel=\"tag\"]:after {\n    content: \"\";\n  }\n\n  /* show long-form for abbreviations in print */\n  abbr[title]:after {\n    content: \" (\" attr(title) \")\";\n  }\n\n  h1 {\n    font-size: 32pt;\n    line-height: 36pt;\n    font-weight: normal;\n    margin: 16pt 0;\n  }\n\n  h2 {\n    font-size: 24pt;\n    line-height: 28pt;\n    page-break-after: avoid;\n    orphans: 2;\n    widows: 2;\n    margin: 14pt 0;\n  }\n\n  h3 {\n    font-size: 18pt;\n    line-height: 22pt;\n    page-break-after: avoid;\n    orphans: 2;\n    widows: 2;\n    margin: 12pt 0;\n  }\n\n  h4 {\n    font-size: 14pt;\n    line-height: 18pt;\n    page-break-after: avoid;\n    orphans: 2;\n    widows: 2;\n    margin: 11pt 0;\n  }\n\n  h5 {\n    font-size: 12pt;\n    line-height: 16pt;\n    page-break-after: avoid;\n    orphans: 2;\n    widows: 2;\n    margin: 10pt 0;\n  }\n\n  h6 {\n    font-size: 10pt;\n    line-height: 14pt;\n    page-break-after: avoid;\n    orphans: 2;\n    widows: 2;\n    margin: 9pt 0;\n  }\n\n  p {\n    orphans: 2;\n    widows: 2;\n  }\n\n  footer,\n  figcaption,\n  tfoot,\n  small,\n  .footnote {\n    font-size: 6pt;\n  }\n\n  blockquote {\n    font-size: 16pt;\n    border-left: 3pt solid black;\n    padding: 0 0 0 8pt;\n    page-break-inside: avoid;\n  }\n\n  pre {\n    margin-bottom: 8pt;\n    border: 1pt solid black;\n    padding: 8pt;\n  }\n\n  .comments {\n    page-break-inside: avoid;\n  }\n\n  pre,\n  code,\n  kbd,\n  samp,\n  var {\n    font-family: \"Courier New\", Courier, monospace;\n  }\n\n  dfn,\n  q,\n  dt {\n    font-style: italic;\n  }\n\n  img {\n    max-width: 100% !important;\n    page-break-inside: avoid;\n  }\n\n  img.align-left {\n    float: left;\n    margin: 1em 1em 1em 0;\n  }\n  img.align-right {\n    float: right;\n    margin: 1em 0 1em 1em;\n  }\n  img.align-center {\n    display: block;\n    margin: 1em auto;\n  }\n\n  figure {\n    margin-bottom: 8pt;\n  }\n\n  figcaption {\n    margin-top: 4pt;\n  }\n\n  ul {\n    list-style: square;\n    margin: 0 0 8pt 1.8em;\n  }\n\n  ol {\n    list-style: decimal;\n    margin: 0 0 8pt 1.8em;\n  }\n\n  dl {\n    margin: 0 0 8pt 1.8em;\n  }\n\n  table {\n    margin-bottom: 8pt;\n    width: 100%;\n  }\n\n  caption {\n    font-weight: bold;\n    text-align: left;\n    margin-bottom: 4pt;\n  }\n\n  /* display table head across multi-page tables */\n  thead {\n    display: table-header-group;\n  }\n  thead th {\n    border-top: 1pt solid black;\n  }\n\n  tr {\n    page-break-inside: avoid;\n  }\n\n  th,\n  td {\n    border-bottom: 1pt solid black;\n    padding: 4pt 8pt;\n  }\n}\n')";
 $create_sql[] = "INSERT INTO `".PFX."txp_css`(`name`,`css`) VALUES('ie8', '/* ==========================================================================\n   Desktop version layout for IE8 due to lack of media queries support\n   ========================================================================== */\nheader,\nfooter,\n.container,\n.site-navigation ul {\n  width: 93.75%;\n}\n\n.site-navigation {\n  border-top: 1px solid #cccccc;\n}\n.site-navigation li {\n  float: left;\n  border-top: 0;\n  border-right: 1px solid #cccccc;\n}\n.site-navigation li:first-child {\n  border-left: 1px solid #cccccc;\n}\n.site-navigation a {\n  padding: 0.5em 1em;\n}\n\nmain {\n  float: left;\n  width: 62.5%;\n}\n\n[role=\"complementary\"] {\n  float: right;\n  border: 1px solid #e3e3e3;\n  padding: 0 1em;\n  width: 30%;\n  background: #f7f7f7;\n}\n\n/* Fix for reponsive embedded content in IE8\n   ========================================================================== */\nimg,\nvideo {\n  width: auto;\n}\n')";
 // /sql:txp_css
 
-$create_sql[] = "CREATE TABLE `".PFX."txp_discuss` (
-  `discussid` int(6) unsigned zerofill NOT NULL auto_increment,
-  `parentid` int(8) NOT NULL default '0',
-  `name` varchar(255) NOT NULL default '',
-  `email` varchar(50) NOT NULL default '',
-  `web` varchar(255) NOT NULL default '',
-  `ip` varchar(100) NOT NULL default '',
-  `posted` datetime NOT NULL default '0000-00-00 00:00:00',
-  `message` text NOT NULL,
-  `visible` tinyint(4) NOT NULL default '1',
-  PRIMARY KEY  (`discussid`),
-  KEY `parentid` (`parentid`)
-) $tabletype PACK_KEYS=1 AUTO_INCREMENT=2 ";
-
 $create_sql[] = "INSERT INTO `".PFX."txp_discuss` VALUES (000001, 1, 'Donald Swain', 'donald.swain@example.com', 'example.com', '127.0.0.1', now() + interval 1 hour, '<p>I enjoy your site very much.</p>', 1)";
-
-$create_sql[] = "CREATE TABLE `".PFX."txp_discuss_ipban` (
-  `ip` varchar(255) NOT NULL default '',
-  `name_used` varchar(255) NOT NULL default '',
-  `date_banned` datetime NOT NULL default '0000-00-00 00:00:00',
-  `banned_on_message` int(8) NOT NULL default '0',
-  PRIMARY KEY (`ip`)
-) $tabletype ";
-
-$create_sql[] = "CREATE TABLE `".PFX."txp_discuss_nonce` (
-  `issue_time` datetime NOT NULL default '0000-00-00 00:00:00',
-  `nonce` varchar(255) NOT NULL default '',
-  `used` tinyint(4) NOT NULL default '0',
-  `secret` varchar(255) NOT NULL default '',
-  PRIMARY KEY (`nonce`)
-) $tabletype ";
-
-$create_sql[] = "CREATE TABLE `".PFX."txp_file` (
-  `id` int(11) NOT NULL auto_increment,
-  `filename` varchar(255) NOT NULL default '',
-  `category` varchar(255) NOT NULL default '',
-  `permissions` varchar(32) NOT NULL default '0',
-  `description` text NOT NULL,
-  `downloads` int(4) unsigned NOT NULL default '0',
-  PRIMARY KEY  (`id`),
-  UNIQUE KEY `filename` (`filename`)
-) $tabletype PACK_KEYS=0 AUTO_INCREMENT=1 ";
-
-$create_sql[] = "CREATE TABLE `".PFX."txp_form` (
-  `name` varchar(64) NOT NULL,
-  `type` varchar(28) NOT NULL default '',
-  `Form` text NOT NULL,
-  PRIMARY KEY (`name`)
-) $tabletype PACK_KEYS=1";
 
 // sql:txp_form
 $create_sql[] = "INSERT INTO `".PFX."txp_form`(`name`,`type`,`Form`) VALUES('article_listing', 'article', '<li role=\"article\" itemscope itemtype=\"http://schema.org/Article\">\n    <h4 itemprop=\"name headline\"><a href=\"<txp:permlink />\" itemprop=\"url\"><txp:title /></a></h4>\n\n<!-- if the article has an excerpt, display that -->\n    <txp:if_excerpt>\n        <div itemprop=\"description\">\n            <txp:excerpt />\n        </div>\n    </txp:if_excerpt>\n\n    <p class=\"footnote\"><txp:text item=\"posted\" /> <time datetime=\"<txp:posted format=\"iso8601\" />\" itemprop=\"datePublished\"><txp:posted /></time>, <txp:text item=\"author\" /> <span itemprop=\"author\" itemscope itemtype=\"http://schema.org/Person\"><span itemprop=\"name\"><txp:author link=\"1\" this_section=\"1\" /></span></span></p>\n</li>\n')";
@@ -224,44 +139,6 @@ $create_sql[] = "INSERT INTO `".PFX."txp_form`(`name`,`type`,`Form`) VALUES('sea
 $create_sql[] = "INSERT INTO `".PFX."txp_form`(`name`,`type`,`Form`) VALUES('search_results', 'article', '<!-- count how many results return -->\n<txp:article limit=\"10\" pgonly=\"1\" />\n\n<txp:if_search_results>\n\n<!-- if search result count greater than 200 then display excessive results message, otherwise show search result count -->\n    <txp:if_search_results max=\"200\">\n        <h3><txp:search_result_count /> <txp:text item=\"matching_search_request\" /> <q><txp:search_term /></q></h3>\n    <txp:else />\n        <h3><txp:text item=\"too_common_search_term\" /> <q><txp:search_term /></q></h3>\n    </txp:if_search_results>\n\n<!-- if no search results, then display no search results message -->\n<txp:else />\n    <h3><txp:text item=\"no_search_matches\" /></h3>\n\n</txp:if_search_results>\n\n<!-- display resulting articles (10 per page) -->\n<txp:article limit=\"10\" wraptag=\"ul\" class=\"article-list\">\n\n    <li role=\"article\" itemscope itemtype=\"http://schema.org/Article\">\n        <h4 itemprop=\"name headline\"><a href=\"<txp:permlink />\" itemprop=\"url\"><txp:title /></a></h4>\n\n<!-- if the article has an excerpt, display that, otherwise show highlighted keywords in context of article -->\n        <txp:if_excerpt>\n            <div itemprop=\"description\">\n                <txp:excerpt />\n            </div>\n        <txp:else />\n            <p><txp:search_result_excerpt /></p>\n        </txp:if_excerpt>\n\n        <p class=\"footnote\"><txp:text item=\"posted\" /> <time datetime=\"<txp:posted format=\"iso8601\" />\" itemprop=\"datePublished\"><txp:posted /></time>, <txp:text item=\"author\" /> <span itemprop=\"author\" itemscope itemtype=\"http://schema.org/Person\"><span itemprop=\"name\"><txp:author link=\"1\" this_section=\"1\" /></span></span></p>\n    </li>\n\n</txp:article>\n\n<!-- check if there are further results and provide pagination links or disabled buttons depending on the result,\n    this method is more flexibile than using simple txp:older/txp:newer tags -->\n<txp:if_search_results min=\"11\">\n\n    <txp:variable name=\"prev\" value=\'<txp:older />\' />\n    <txp:variable name=\"next\" value=\'<txp:newer />\' />\n\n    <p class=\"paginator\">\n        <txp:if_variable name=\"next\" value=\"\">\n        <txp:else />\n            <a rel=\"prev\" href=\"<txp:newer />\" title=\"<txp:text item=\"prev\" />\">← <txp:text item=\"prev\" /></a>\n        </txp:if_variable>\n\n        <txp:if_variable name=\"prev\" value=\"\">\n        <txp:else />\n            <a rel=\"next\" href=\"<txp:older />\" title=\"<txp:text item=\"next\" />\"><txp:text item=\"next\" /> →</a>\n        </txp:if_variable>\n    </p>\n\n</txp:if_search_results>\n')";
 // /sql:txp_form
 
-$create_sql[] = "CREATE TABLE `".PFX."txp_image` (
-  `id` int(11) NOT NULL auto_increment,
-  `name` varchar(255) NOT NULL default '',
-  `category` varchar(255) NOT NULL default '',
-  `ext` varchar(20) NOT NULL default '',
-  `w` int(8) NOT NULL default '0',
-  `h` int(8) NOT NULL default '0',
-  `alt` varchar(255) NOT NULL default '',
-  `caption` text NOT NULL,
-  `date` datetime NOT NULL default '0000-00-00 00:00:00',
-  `author` varchar(255) NOT NULL default '',
-  `thumbnail` int(2) NOT NULL default '0',
-  PRIMARY KEY  (`id`)
-) $tabletype PACK_KEYS=0";
-
-$create_sql[] = "CREATE TABLE `".PFX."txp_lang` (
-  `id` int(9) NOT NULL auto_increment,
-  `lang` varchar(16) NOT NULL,
-  `name` varchar(64) NOT NULL,
-  `event` varchar(64) NOT NULL,
-  `data` text,
-  `lastmod` timestamp,
-  PRIMARY KEY  (`id`),
-  UNIQUE KEY `lang` (`lang`,`name`),
-  KEY `lang_2` (`lang`,`event`)
-) $tabletype AUTO_INCREMENT=1 ";
-
-$create_sql[] = "CREATE TABLE `".PFX."txp_link` (
-  `id` int(6) NOT NULL auto_increment,
-  `date` datetime NOT NULL default '0000-00-00 00:00:00',
-  `category` varchar(64) NOT NULL default '',
-  `url` text NOT NULL,
-  `linkname` varchar(255) NOT NULL default '',
-  `linksort` varchar(128) NOT NULL default '',
-  `description` text NOT NULL,
-  PRIMARY KEY  (`id`)
-) $tabletype PACK_KEYS=1 AUTO_INCREMENT=4 ";
-
 $create_sql[] = "INSERT INTO `".PFX."txp_link` VALUES (1, now(), 'textpattern', 'http://textpattern.com/', 'Textpattern Website', '10', '')";
 $create_sql[] = "INSERT INTO `".PFX."txp_link` VALUES (2, now(), 'textpattern', 'http://textpattern.net/', 'Textpattern User Documentation', '20', '')";
 $create_sql[] = "INSERT INTO `".PFX."txp_link` VALUES (3, now(), 'textpattern', 'http://textpattern.org/', 'Textpattern Resources', '30', '')";
@@ -270,70 +147,37 @@ $create_sql[] = "INSERT INTO `".PFX."txp_link` VALUES (5, now(), 'textpattern', 
 $create_sql[] = "INSERT INTO `".PFX."txp_link` VALUES (6, now(), 'textpattern', 'http://textpattern.com/facebook', 'Textpattern Facebook Group', '60', '')";
 $create_sql[] = "INSERT INTO `".PFX."txp_link` VALUES (7, now(), 'textpattern', 'http://textgarden.org/', 'Textgarden', '70', '')";
 
-$create_sql[] = "CREATE TABLE `".PFX."txp_log` (
-  `id` int(12) NOT NULL auto_increment,
-  `time` datetime NOT NULL default '0000-00-00 00:00:00',
-  `host` varchar(255) NOT NULL default '',
-  `page` varchar(255) NOT NULL default '',
-  `refer` mediumtext NOT NULL,
-  `status` int(11) NOT NULL default '200',
-  `method` varchar(16) NOT NULL default 'GET',
-  `ip` varchar(16) NOT NULL default '',
-  PRIMARY KEY  (`id`),
-  KEY `time` (`time`)
-) $tabletype AUTO_INCREMENT=77 ";
-
-$create_sql[] = "CREATE TABLE `".PFX."txp_page` (
-  `name` varchar(128) NOT NULL,
-  `user_html` text NOT NULL,
-  PRIMARY KEY (`name`)
-) $tabletype PACK_KEYS=1";
-
 // sql:txp_page
 $create_sql[] = "INSERT INTO `".PFX."txp_page`(`name`,`user_html`) VALUES('archive', '<!DOCTYPE html>\n<html lang=\"<txp:lang />\" dir=\"<txp:text item=\"lang_dir\" />\">\n\n<head>\n    <meta charset=\"utf-8\">\n    <title><txp:page_title /></title>\n    <meta name=\"generator\" content=\"Textpattern CMS\">\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n    <meta name=\"robots\" content=\"index, follow, noodp, noydir\">\n\n    <txp:if_individual_article>\n<!-- add meta author for individual articles -->\n        <txp:meta_author title=\"1\" />\n    </txp:if_individual_article>\n\n<!-- content feeds -->\n    <txp:feed_link flavor=\"atom\" format=\"link\" label=\"Atom\" />\n    <txp:feed_link flavor=\"rss\" format=\"link\" label=\"RSS\" />\n    <txp:rsd />\n\n<!-- specify canonical, more info: http://googlewebmastercentral.blogspot.com/2009/02/specify-your-canonical.html -->\n    <txp:if_individual_article>\n        <link rel=\"canonical\" href=\"<txp:permlink />\">\n    <txp:else />\n        <link rel=\"canonical\" href=\"<txp:section url=\"1\" />\">\n    </txp:if_individual_article>\n\n<!-- css -->\n    <!-- Google font API (remove this if you intend to use the theme in a project without internet access) -->\n    <link rel=\"stylesheet\" href=\"http://fonts.googleapis.com/css?family=PT+Serif:400,400italic,700,700italic\">\n\n    <txp:css format=\"link\" media=\"\" />\n    <!-- or you can use (faster) external CSS files eg. <link rel=\"stylesheet\" href=\"<txp:site_url />css/default.css\"> -->\n\n<!-- HTML5/Media Queries support for IE8 (you can remove this section and the corresponding \'js\' directory file if you don\'t intend to support IE8) -->\n    <!--[if lt IE 9]>\n        <script src=\"<txp:site_url />js/html5shiv.js\"></script>\n        <txp:css format=\"link\" media=\"\" name=\"ie8\" />\n    <![endif]-->\n\n</head>\n\n<body class=\"<txp:section />-page\">\n\n<!-- header -->\n    <header role=\"banner\">\n        <h1><txp:link_to_home><txp:site_name /></txp:link_to_home></h1>\n        <h3><txp:site_slogan /></h3>\n    </header>\n\n<!-- navigation -->\n    <nav role=\"navigation\" class=\"site-navigation\" aria-label=\"<txp:text item=\"navigation\" />\">\n        <txp:section_list default_title=\'<txp:text item=\"home\" />\' include_default=\"1\" wraptag=\"ul\" break=\"\">\n            <li<txp:if_section name=\'<txp:section />\'> class=\"active\"</txp:if_section>>\n                <txp:section title=\"1\" link=\"1\" />\n            </li>\n        </txp:section_list>\n    </nav>\n\n    <div class=\"wrapper\">\n        <div class=\"container\">\n\n<!-- left (main) column -->\n            <main role=\"main\" aria-label=\"<txp:text item=\"main_content\" />\">\n\n                <txp:if_article_list>\n\n                    <section role=\"region\" itemscope itemtype=\"http://schema.org/CollectionPage\">\n                        <h1 itemprop=\"name\"><txp:section title=\"1\" /></h1>\n\n                        <div itemprop=\"mainContentOfPage\">\n                            <txp:if_article_list>\n                                <txp:article form=\"article_listing\" limit=\"5\" wraptag=\"ul\" class=\"article-list\" />\n                                <!-- or if you want to list all articles from all sections instead, then replace txp:article with txp:article_custom -->\n                            <txp:else />\n                                <txp:article />\n                            </txp:if_article_list>\n                        </div>\n                    </section>\n\n                <txp:else />\n\n                    <txp:article />\n\n                </txp:if_article_list>\n\n                <!-- add pagination links to foot of article/article listings if there are more articles available,\n                    this method is more flexibile than using simple txp:link_to_prev/txp:link_to_next or txp:older/txp:newer tags -->\n                <txp:if_individual_article>\n\n                    <txp:variable name=\"more\" value=\'<txp:link_to_prev /><txp:link_to_next />\' />\n                    <txp:variable name=\"prev\" value=\'<txp:link_to_prev />\' />\n                    <txp:variable name=\"next\" value=\'<txp:link_to_next />\' />\n\n                    <txp:if_variable name=\"more\" value=\"\">\n                    <txp:else />\n                        <p class=\"paginator\">\n                            <txp:if_variable name=\"prev\" value=\"\">\n                            <txp:else />\n                                <a rel=\"prev\" href=\"<txp:link_to_prev />\" title=\"<txp:prev_title />\">← <txp:text item=\"older\" /></a>\n                            </txp:if_variable>\n\n                            <txp:if_variable name=\"next\" value=\"\">\n                            <txp:else />\n                                <a rel=\"next\" href=\"<txp:link_to_next />\" title=\"<txp:next_title />\"><txp:text item=\"newer\" /> →</a>\n                            </txp:if_variable>\n                        </p>\n                    </txp:if_variable>\n\n                <txp:else />\n\n                    <txp:variable name=\"more\" value=\'<txp:older /><txp:newer />\' />\n                    <txp:variable name=\"prev\" value=\'<txp:older />\' />\n                    <txp:variable name=\"next\" value=\'<txp:newer />\' />\n\n                    <txp:if_variable name=\"more\" value=\"\">\n                    <txp:else />\n                        <p class=\"paginator\">\n                            <txp:if_variable name=\"prev\" value=\"\">\n                            <txp:else />\n                                <a rel=\"prev\" href=\"<txp:older />\" title=\"<txp:text item=\"older\" />\">← <txp:text item=\"older\" /></a>\n                            </txp:if_variable>\n\n                            <txp:if_variable name=\"next\" value=\"\">\n                            <txp:else />\n                                <a rel=\"next\" href=\"<txp:newer />\" title=\"<txp:text item=\"newer\" />\"><txp:text item=\"newer\" /> →</a>\n                            </txp:if_variable>\n                        </p>\n                    </txp:if_variable>\n\n                </txp:if_individual_article>\n\n            </main>\n\n<!-- right (complementary) column -->\n            <div role=\"complementary\">\n                <txp:search_input /> <!-- links by default to form: \'search_input.misc.txp\' unless you specify a different form -->\n\n                <!-- Feed links, default flavor is rss, so we don\'t need to specify a flavor on the first feed_link -->\n                <p><txp:feed_link label=\"RSS\" class=\"feed-rss\" /> / <txp:feed_link flavor=\"atom\" label=\"Atom\" class=\"feed-atom\" /></p>\n\n                <h4><txp:text item=\"external_links\" /></h4>\n                <txp:linklist wraptag=\"ul\" break=\"li\" limit=\"10\" /> <!-- links by default to form: \'plainlinks.link.txp\' unless you specify a different form -->\n            </div> <!-- /complementary -->\n\n        </div> <!-- /.container -->\n    </div> <!-- /.wrapper -->\n\n<!-- footer -->\n    <footer role=\"contentinfo\">\n        <p><small><txp:text item=\"published_with\" /> <a rel=\"external\" href=\"http://textpattern.com\" title=\"<txp:text item=\"go_txp_com\" />\">Textpattern CMS</a>.</small></p>\n    </footer>\n\n    <!-- add your own JavaScript here -->\n\n</body>\n</html>\n')";
 $create_sql[] = "INSERT INTO `".PFX."txp_page`(`name`,`user_html`) VALUES('default', '<!DOCTYPE html>\n<html lang=\"<txp:lang />\" dir=\"<txp:text item=\"lang_dir\" />\">\n\n<head>\n    <meta charset=\"utf-8\">\n    <title><txp:page_title /></title>\n    <meta name=\"generator\" content=\"Textpattern CMS\">\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n\n    <txp:if_search>\n        <meta name=\"robots\" content=\"none\">\n    <txp:else />\n        <txp:if_category>\n            <meta name=\"robots\" content=\"noindex, follow, noodp, noydir\">\n        <txp:else />\n            <txp:if_author>\n                <meta name=\"robots\" content=\"noindex, follow, noodp, noydir\">\n            <txp:else />\n                <meta name=\"robots\" content=\"index, follow, noodp, noydir\">\n            </txp:if_author>\n        </txp:if_category>\n    </txp:if_search>\n\n<!-- content feeds -->\n    <txp:feed_link flavor=\"atom\" format=\"link\" label=\"Atom\" />\n    <txp:feed_link flavor=\"rss\" format=\"link\" label=\"RSS\" />\n    <txp:rsd />\n\n<!-- specify canonical, more info: http://googlewebmastercentral.blogspot.com/2009/02/specify-your-canonical.html -->\n    <txp:if_section name=\"\">\n        <link rel=\"canonical\" href=\"<txp:site_url />\">\n    <txp:else />\n        <txp:if_individual_article>\n            <link rel=\"canonical\" href=\"<txp:permlink />\">\n        <txp:else />\n            <link rel=\"canonical\" href=\"<txp:section url=\"1\" />\">\n        </txp:if_individual_article>\n    </txp:if_section>\n\n<!-- css -->\n    <!-- Google font API (remove this if you intend to use the theme in a project without internet access) -->\n    <link rel=\"stylesheet\" href=\"http://fonts.googleapis.com/css?family=PT+Serif:400,400italic,700,700italic\">\n\n    <txp:css format=\"link\" media=\"\" />\n    <!-- or you can use (faster) external CSS files eg. <link rel=\"stylesheet\" href=\"<txp:site_url />css/default.css\"> -->\n\n<!-- HTML5/Media Queries support for IE8 (you can remove this section and the corresponding \'js\' directory file if you don\'t intend to support IE8) -->\n    <!--[if lt IE 9]>\n        <script src=\"<txp:site_url />js/html5shiv.js\"></script>\n        <txp:css format=\"link\" media=\"\" name=\"ie8\" />\n    <![endif]-->\n\n</head>\n\n<body class=\"<txp:if_section name=\"\"><txp:if_search>search<txp:else />front</txp:if_search><txp:else /><txp:section /></txp:if_section>-page\">\n\n<!-- header -->\n    <header role=\"banner\">\n        <h1><txp:link_to_home><txp:site_name /></txp:link_to_home></h1>\n        <h3><txp:site_slogan /></h3>\n    </header>\n\n<!-- navigation -->\n    <nav role=\"navigation\" class=\"site-navigation\" aria-label=\"<txp:text item=\"navigation\" />\">\n        <txp:section_list default_title=\'<txp:text item=\"home\" />\' include_default=\"1\" wraptag=\"ul\" break=\"\">\n            <li<txp:if_section name=\'<txp:section />\'><txp:if_search><txp:else /><txp:if_category><txp:else /><txp:if_author><txp:else /> class=\"active\"</txp:if_author></txp:if_category></txp:if_search></txp:if_section>>\n                <txp:section title=\"1\" link=\"1\" />\n            </li>\n        </txp:section_list>\n    </nav>\n\n    <div class=\"wrapper\">\n        <div class=\"container\">\n\n<!-- left (main) column -->\n            <main role=\"main\" aria-label=\"<txp:text item=\"main_content\" />\">\n\n            <!-- is this the search result page? also omits the pagination links below (uses pagination format within search_results.article.txp instead) -->\n                <txp:if_search>\n\n                    <section role=\"region\" itemscope itemtype=\"http://schema.org/SearchResultsPage\">\n                        <h1 itemprop=\"name\"><txp:text item=\"search_results\" /></h1>\n                        <div itemprop=\"mainContentOfPage\">\n                            <txp:output_form form=\"search_results\" />\n                        </div>\n                    </section>\n\n                <txp:else />\n\n                <!-- else is this an article category list? -->\n                    <txp:if_category>\n\n                        <section role=\"region\" itemscope itemtype=\"http://schema.org/CollectionPage\">\n                            <h1 itemprop=\"name\"><txp:text item=\"category\" /> <txp:category title=\"1\" /></h1>\n                            <div itemprop=\"mainContentOfPage\">\n                                <txp:article form=\"article_listing\" limit=\"5\" wraptag=\"ul\" class=\"article-list\" />\n                            </div>\n                        </section>\n\n                    <txp:else />\n\n                        <!-- else is this an article author list? -->\n                        <txp:if_author>\n\n                            <section role=\"region\" itemscope itemtype=\"http://schema.org/CollectionPage\">\n                                <h1 itemprop=\"name\"><txp:text item=\"author\" /> <txp:author /></h1>\n                                <div itemprop=\"mainContentOfPage\">\n                                    <txp:article form=\"article_listing\" limit=\"5\" wraptag=\"ul\" class=\"article-list\" />\n                                </div>\n                            </section>\n\n                        <txp:else />\n\n                            <!-- else display articles normally -->\n                            <txp:article limit=\"5\" /> <!-- links by default to form: \'default.article.txp\' unless you specify a different form -->\n\n                        </txp:if_author>\n                    </txp:if_category>\n\n                    <!-- add pagination links to foot of article/article listings/category listings if there are more articles available,\n                    this method is more flexibile than using simple txp:link_to_prev/txp:link_to_next or txp:older/txp:newer tags -->\n                    <txp:variable name=\"more\" value=\'<txp:older /><txp:newer />\' />\n                    <txp:variable name=\"prev\" value=\'<txp:older />\' />\n                    <txp:variable name=\"next\" value=\'<txp:newer />\' />\n\n                    <txp:if_variable name=\"more\" value=\"\">\n                    <txp:else />\n                        <p class=\"paginator\">\n                            <txp:if_variable name=\"prev\" value=\"\">\n                            <txp:else />\n                                <a rel=\"prev\" href=\"<txp:older />\" title=\"<txp:text item=\"older\" />\">← <txp:text item=\"older\" /></a>\n                            </txp:if_variable>\n\n                            <txp:if_variable name=\"next\" value=\"\">\n                            <txp:else />\n                                <a rel=\"next\" href=\"<txp:newer />\" title=\"<txp:text item=\"newer\" />\"><txp:text item=\"newer\" /> →</a>\n                            </txp:if_variable>\n                        </p>\n                    </txp:if_variable>\n\n                </txp:if_search>\n\n            </main>\n\n<!-- right (complementary) column -->\n            <div role=\"complementary\">\n                <txp:search_input /> <!-- links by default to form: \'search_input.misc.txp\' unless you specify a different form -->\n\n                <!-- Feed links, default flavor is rss, so we don\'t need to specify a flavor on the first feed_link -->\n                <p><txp:feed_link label=\"RSS\" class=\"feed-rss\" /> / <txp:feed_link flavor=\"atom\" label=\"Atom\" class=\"feed-atom\" /></p>\n\n                <h4><txp:text item=\"external_links\" /></h4>\n                <txp:linklist wraptag=\"ul\" break=\"li\" limit=\"10\" /> <!-- links by default to form: \'plainlinks.link.txp\' unless you specify a different form -->\n            </div> <!-- /complementary -->\n\n        </div> <!-- /.container -->\n    </div> <!-- /.wrapper -->\n\n<!-- footer -->\n    <footer role=\"contentinfo\">\n        <p><small><txp:text item=\"published_with\" /> <a rel=\"external\" href=\"http://textpattern.com\" title=\"<txp:text item=\"go_txp_com\" />\">Textpattern CMS</a>.</small></p>\n    </footer>\n\n    <!-- add your own JavaScript here -->\n\n</body>\n</html>\n')";
 $create_sql[] = "INSERT INTO `".PFX."txp_page`(`name`,`user_html`) VALUES('error_default', '<!DOCTYPE html>\n<html lang=\"<txp:lang />\" dir=\"<txp:text item=\"lang_dir\" />\">\n\n<head>\n    <meta charset=\"utf-8\">\n    <title><txp:error_status /></title>\n    <meta name=\"generator\" content=\"Textpattern CMS\">\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n    <meta name=\"robots\" content=\"none\">\n\n<!-- content feeds -->\n    <txp:feed_link flavor=\"atom\" format=\"link\" label=\"Atom\" />\n    <txp:feed_link flavor=\"rss\" format=\"link\" label=\"RSS\" />\n    <txp:rsd />\n\n<!-- css -->\n    <!-- Google font API (remove this if you intend to use the theme in a project without internet access) -->\n    <link rel=\"stylesheet\" href=\"http://fonts.googleapis.com/css?family=PT+Serif:400,400italic,700,700italic\">\n\n    <txp:css format=\"link\" media=\"\" />\n    <!-- or you can use (faster) external CSS files eg. <link rel=\"stylesheet\" href=\"<txp:site_url />css/default.css\"> -->\n\n<!-- HTML5/Media Queries support for IE8 (you can remove this section and the corresponding \'js\' directory file if you don\'t intend to support IE8) -->\n    <!--[if lt IE 9]>\n        <script src=\"<txp:site_url />js/html5shiv.js\"></script>\n        <txp:css format=\"link\" media=\"\" name=\"ie8\" />\n    <![endif]-->\n\n</head>\n\n<body class=\"error-page\">\n\n<!-- header -->\n    <header role=\"banner\">\n        <h1><txp:link_to_home><txp:site_name /></txp:link_to_home></h1>\n        <h3><txp:site_slogan /></h3>\n    </header>\n\n<!-- navigation -->\n    <nav role=\"navigation\" class=\"site-navigation\" aria-label=\"<txp:text item=\"navigation\" />\">\n        <txp:section_list default_title=\'<txp:text item=\"home\" />\' include_default=\"1\" wraptag=\"ul\" break=\"li\">\n            <txp:section title=\"1\" link=\"1\" />\n        </txp:section_list>\n    </nav>\n\n    <div class=\"wrapper\">\n        <div class=\"container\">\n\n<!-- left (main) column -->\n            <main role=\"main\" aria-label=\"<txp:text item=\"main_content\" />\">\n                <h1 class=\"error-status\"><txp:error_status /></h1>\n                <p class=\"error-msg\"><txp:error_message /></p>\n            </main>\n\n<!-- right (complementary) column -->\n            <div role=\"complementary\">\n                <txp:search_input /> <!-- links by default to form: \'search_input.misc.txp\' unless you specify a different form -->\n\n                <!-- Feed links, default flavor is rss, so we don\'t need to specify a flavor on the first feed_link -->\n                <p><txp:feed_link label=\"RSS\" class=\"feed-rss\" /> / <txp:feed_link flavor=\"atom\" label=\"Atom\" class=\"feed-atom\" /></p>\n\n                <h4><txp:text item=\"external_links\" /></h4>\n                <txp:linklist wraptag=\"ul\" break=\"li\" limit=\"10\" /> <!-- links by default to form: \'plainlinks.link.txp\' unless you specify a different form -->\n            </div> <!-- /complementary -->\n\n        </div> <!-- /.container -->\n    </div> <!-- /.wrapper -->\n\n<!-- footer -->\n    <footer role=\"contentinfo\">\n        <p><small><txp:text item=\"published_with\" /> <a rel=\"external\" href=\"http://textpattern.com\" title=\"<txp:text item=\"go_txp_com\" />\">Textpattern CMS</a>.</small></p>\n    </footer>\n\n    <!-- add your own JavaScript here -->\n\n</body>\n</html>\n')";
 // /sql:txp_page
 
-$create_sql[] = "CREATE TABLE `".PFX."txp_plugin` (
-  `name` varchar(64) NOT NULL default '',
-  `status` int(2) NOT NULL default '1',
-  `author` varchar(128) NOT NULL default '',
-  `author_uri` varchar(128) NOT NULL default '',
-  `version` varchar(10) NOT NULL default '1.0',
-  `description` text NOT NULL,
-  `help` text NOT NULL,
-  `code` text NOT NULL,
-  `code_restore` text NOT NULL,
-  `code_md5` varchar(32) NOT NULL default '',
-  `type` int(2) NOT NULL default '0',
-  UNIQUE KEY `name` (`name`)
-) $tabletype ";
-
-$create_sql[] = "CREATE TABLE `".PFX."txp_prefs` (
-  `prefs_id` int(11) NOT NULL,
-  `name` varchar(255) NOT NULL,
-  `val` varchar(255) NOT NULL default '',
-  `type` smallint(5) unsigned NOT NULL default '2',
-  `event` varchar(12) NOT NULL default 'publish',
-  `html` varchar(64) NOT NULL default 'text_input',
-  `position` smallint(5) unsigned NOT NULL default '0',
-  `user_name` varchar(64) NOT NULL default '',
-  UNIQUE KEY `prefs_idx` (`prefs_id`,`name`, `user_name`),
-  KEY `name` (`name`),
-  KEY `user_name` (`user_name`)
-) $tabletype ";
-
 $prefs['blog_uid'] = md5(uniqid(rand(), true));
 $create_sql[] = "INSERT INTO `".PFX."txp_prefs` VALUES (1, 'prefs_id', '1', 2, 'publish', 'text_input', 0, '')";
-$create_sql[] = "INSERT INTO `".PFX."txp_prefs` VALUES (1, 'sitename', '".doSlash(gTxt('my_site'))."', 0, 'publish', 'text_input', 10, '')";
+$create_sql[] = array(
+    "INSERT INTO `".PFX."txp_prefs` VALUES (1, 'sitename', :val, 0, 'publish', 'text_input', 10, '')",
+    array(
+        ':val' => gTxt('my_site')
+    )
+);
 $create_sql[] = "INSERT INTO `".PFX."txp_prefs` VALUES (1, 'siteurl', 'comment.local', 0, 'publish', 'text_input', 20, '')";
-$create_sql[] = "INSERT INTO `".PFX."txp_prefs` VALUES (1, 'site_slogan', '".doSlash(gTxt('my_slogan'))."', 0, 'publish', 'text_input', 30, '')";
+$create_sql[] = array(
+    "INSERT INTO `".PFX."txp_prefs` VALUES (1, 'site_slogan', :val, 0, 'publish', 'text_input', 30, '')",
+    array(
+        ':val' => gTxt('my_slogan')
+    )
+);
 $create_sql[] = "INSERT INTO `".PFX."txp_prefs` VALUES (1, 'language', 'en-gb', 2, 'publish', 'languages', 40, '')";
 $create_sql[] = "INSERT INTO `".PFX."txp_prefs` VALUES (1, 'url_mode', '1', 2, 'publish', 'text_input', 0, '')";
 $create_sql[] = "INSERT INTO `".PFX."txp_prefs` VALUES (1, 'timeoffset', '0', 2, 'publish', 'text_input', 0, '')";
 $create_sql[] = "INSERT INTO `".PFX."txp_prefs` VALUES (1, 'comments_on_default', '0', 0, 'comments', 'yesnoradio', 140, '')";
-$create_sql[] = "INSERT INTO `".PFX."txp_prefs` VALUES (1, 'comments_default_invite', '".$setup_comment_invite."', 0, 'comments', 'text_input', 180, '')";
+$create_sql[] = array(
+    "INSERT INTO `".PFX."txp_prefs` VALUES (1, 'comments_default_invite', :val, 0, 'comments', 'text_input', 180, '')",
+    array(
+        ':val' => $setup_comment_invite
+    )
+);
 $create_sql[] = "INSERT INTO `".PFX."txp_prefs` VALUES (1, 'comments_mode', '0', 0, 'comments', 'commentmode', 200, '')";
 $create_sql[] = "INSERT INTO `".PFX."txp_prefs` VALUES (1, 'comments_disabled_after', '42', 0, 'comments', 'weeks', 210, '')";
 $create_sql[] = "INSERT INTO `".PFX."txp_prefs` VALUES (1, 'use_textile', '2', 0, 'publish', 'pref_text', 110, '')";
@@ -361,14 +205,39 @@ $create_sql[] = "INSERT INTO `".PFX."txp_prefs` VALUES (1, 'link_list_pageby', '
 $create_sql[] = "INSERT INTO `".PFX."txp_prefs` VALUES (1, 'image_list_pageby', '25', 2, 'publish', 'text_input', 0, '')";
 $create_sql[] = "INSERT INTO `".PFX."txp_prefs` VALUES (1, 'log_list_pageby', '25', 2, 'publish', 'text_input', 0, '')";
 $create_sql[] = "INSERT INTO `".PFX."txp_prefs` VALUES (1, 'comment_list_pageby', '25', 2, 'publish', 'text_input', 0, '')";
-$create_sql[] = "INSERT INTO `".PFX."txp_prefs` VALUES (1, 'permlink_mode', '".doSlash($permlink_mode)."', 0, 'publish', 'permlinkmodes', 90, '')";
+$create_sql[] = array(
+    "INSERT INTO `".PFX."txp_prefs` VALUES (1, 'permlink_mode', :val, 0, 'publish', 'permlinkmodes', 90, '')",
+    array(
+        ':val' => $permlink_mode
+    )
+);
 $create_sql[] = "INSERT INTO `".PFX."txp_prefs` VALUES (1, 'comments_are_ol', '1', 0, 'comments', 'yesnoradio', 150, '')";
 $create_sql[] = "INSERT INTO `".PFX."txp_prefs` VALUES (1, 'is_dst', '0', 0, 'publish', 'yesnoradio', 60, '')";
 $create_sql[] = "INSERT INTO `".PFX."txp_prefs` VALUES (1, 'locale', 'en_GB.UTF-8', 2, 'publish', 'text_input', 0, '')";
-$create_sql[] = "INSERT INTO `".PFX."txp_prefs` VALUES (1, 'tempdir', '".doSlash(find_temp_dir())."', 1, 'admin', 'text_input', 0, '')";
-$create_sql[] = "INSERT INTO `".PFX."txp_prefs` VALUES (1, 'file_base_path', '".doSlash(dirname(txpath).DS.'files')."', 1, 'admin', 'text_input', 0, '')";
-$create_sql[] = "INSERT INTO `".PFX."txp_prefs` VALUES (1, 'blog_uid', '". $prefs['blog_uid'] ."', 2, 'publish', 'text_input', 0, '')";
-$create_sql[] = "INSERT INTO `".PFX."txp_prefs` VALUES (1, 'blog_mail_uid', '".doSlash(ps('email'))."', 2, 'publish', 'text_input', 0, '')";
+$create_sql[] = array(
+    "INSERT INTO `".PFX."txp_prefs` VALUES (1, 'tempdir', :val, 1, 'admin', 'text_input', 0, '')",
+    array(
+        ':val' => find_temp_dir()
+    )
+);
+$create_sql[] = array(
+    "INSERT INTO `".PFX."txp_prefs` VALUES (1, 'file_base_path', :val, 1, 'admin', 'text_input', 0, '')",
+    array(
+        ':val' => dirname(txpath).DS.'files'
+    )
+);
+$create_sql[] = array(
+    "INSERT INTO `".PFX."txp_prefs` VALUES (1, 'blog_uid', :val, 2, 'publish', 'text_input', 0, '')",
+    array(
+        ':val' =>  $prefs['blog_uid']
+    )
+);
+$create_sql[] = array(
+    "INSERT INTO `".PFX."txp_prefs` VALUES (1, 'blog_mail_uid', :val, 2, 'publish', 'text_input', 0, '')",
+    array(
+        ':val' => ps('email')
+    )
+);
 $create_sql[] = "INSERT INTO `".PFX."txp_prefs` VALUES (1, 'blog_time_uid', '2005', 2, 'publish', 'text_input', 0, '')";
 $create_sql[] = "INSERT INTO `".PFX."txp_prefs` VALUES (1, 'edit_raw_css_by_default', '1', 1, 'css', 'yesnoradio', 0, '')";
 $create_sql[] = "INSERT INTO `".PFX."txp_prefs` VALUES (1, 'allow_page_php_scripting', '1', 1, 'publish', 'yesnoradio', 0, '')";
@@ -413,50 +282,29 @@ $create_sql[] = "INSERT INTO `".PFX."txp_prefs` VALUES (1, 'dbupdatetime', '1122
 $create_sql[] = "INSERT INTO `".PFX."txp_prefs` VALUES (1, 'version', '1.0rc4', 2, 'publish', 'text_input', 0, '')";
 $create_sql[] = "INSERT INTO `".PFX."txp_prefs` VALUES (1, 'doctype', 'html5', 0, 'publish', 'doctypes', 190, '')";
 
-$create_sql[] = "CREATE TABLE `".PFX."txp_section` (
-  `name` varchar(128) NOT NULL,
-  `page` varchar(128) NOT NULL default '',
-  `css` varchar(128) NOT NULL default '',
-  `is_default` int(2) NOT NULL default '0',
-  `in_rss` int(2) NOT NULL default '1',
-  `on_frontpage` int(2) NOT NULL default '1',
-  `searchable` int(2) NOT NULL default '1',
-  `title` varchar(255) NOT NULL default '',
-  PRIMARY KEY (`name`)
-) $tabletype PACK_KEYS=1";
-
 $create_sql[] = "INSERT INTO `".PFX."txp_section` VALUES ('articles', 'archive', 'default', 1, 1, 1, 1, 'Articles')";
 $create_sql[] = "INSERT INTO `".PFX."txp_section` VALUES ('default', 'default', 'default', 0, 1, 1, 1, 'Default')";
 $create_sql[] = "INSERT INTO `".PFX."txp_section` VALUES ('about', 'default', 'default', 0, 0, 0, 1, 'About')";
 
-$create_sql[] = "CREATE TABLE `".PFX."txp_users` (
-  `user_id` int(4) NOT NULL auto_increment,
-  `name` varchar(64) NOT NULL default '',
-  `pass` varchar(128) NOT NULL default '',
-  `RealName` varchar(64) NOT NULL default '',
-  `email` varchar(100) NOT NULL default '',
-  `privs` tinyint(2) NOT NULL default '1',
-  `last_access` datetime NOT NULL default '0000-00-00 00:00:00',
-  `nonce` varchar(64) NOT NULL default '',
-  PRIMARY KEY  (`user_id`),
-  UNIQUE KEY `name` (`name`)
-) $tabletype PACK_KEYS=1 AUTO_INCREMENT=2 ";
-
-
-$GLOBALS['txp_install_successful'] = true;
-$GLOBALS['txp_err_count'] = 0;
-
 foreach ($create_sql as $query)
 {
-	$result = mysql_query($query);
-	if (!$result)
-	{
-		$GLOBALS['txp_err_count']++;
-		echo "<b>".$GLOBALS['txp_err_count'].".</b> ".mysql_error()."<br />\n";
-		echo "<!--\n $query \n-->\n";
-		$GLOBALS['txp_install_successful'] = false;
+    try {
+        if (is_array($query)) {
+            $result = $dbPDO->prepare($query[0], array(PDO::ATTR_CURSOR => PDO::CURSOR_FWDONLY));
+            $result->execute($query[1]);
+        } else {
+            $result = $dbPDO->query($query);
+        }
+
+
+    } catch (PDOException $ex) {
+
+        dbExceptionMessages((is_array($query) ? interpolateQuery($query[0], $query[1]) : $query), $ex);
 	}
 }
+
+unset($create_sql);
+
 
 // Skip the RPC language fetch when testing.
 if (defined('TXP_TEST'))
@@ -486,7 +334,21 @@ if (!$client->query('tups.getLanguage', $prefs['blog_uid'],LANG))
 				$lang_val = doSlash($lang_val);
 				if (@$lang_val)
 				{
-					mysql_query("INSERT DELAYED INTO `".PFX."txp_lang` SET lang='en-gb', name='".$lang_key."', event='".$evt_name."', data='".$lang_val."', lastmod='".$lastmod."'");
+                    try {
+                    $setLang = $dbPDO->prepare("INSERT DELAYED INTO `".PFX."txp_lang` SET `lang`= :lang, `name`= :name, `event`= :event, `data`= :data, `lastmod`= :lastmod", array(PDO::ATTR_CURSOR => PDO::CURSOR_FWDONLY));
+                    $setLang->execute(
+                      array(
+                          ':lang'    => 'en-gb',
+                          ':name'    => $lang_key,
+                          ':event'   => $evt_name,
+                          ':data'    => $lang_val,
+                          ':lastmod' => $lastmod
+                      )
+                    );
+                    } catch (PDOException $ex) {
+                        txpDown($dbPDO);
+                        die($ex->getMessage());
+                    }
 				}
 			}
 		}
@@ -503,20 +365,379 @@ else
 		{
 			$item[$name] = doSlash($value);
 		}
-		mysql_query("INSERT DELAYED INTO `".PFX."txp_lang` SET lang='".LANG."', name='".$item['name']."', event='".$item['event']."', data='".$item['data']."', lastmod='".strftime('%Y%m%d%H%M%S', $item['uLastmod'])."'");
+        try {
+		$setLang = $dbPDO->prepare("INSERT DELAYED INTO `".PFX."txp_lang` SET `lang`=:lang, `name`=:name, `event`=:event, `data`=:data, `lastmod`=:lastmod", array(PDO::ATTR_CURSOR => PDO::CURSOR_FWDONLY));
+        $setLang->execute(
+            array(
+                ':lang' => LANG,
+                ':name' => $item['name'],
+                ':event' => $item['event'],
+                ':data' => $item['data'],
+                ':lastmod' => strftime('%Y%m%d%H%M%S', $item['uLastmod'])
+
+            )
+        );
+        } catch (PDOException $ex) {
+            txpDown($dbPDO);
+            die($ex->getMessage());
+        }
 	}
 }
 
-mysql_query("FLUSH TABLE `".PFX."txp_lang`");
+try {
+    $dbPDO->query("FLUSH TABLE `".PFX."txp_lang`");
+} catch (PDOException $ex) {
+    /** silently ignore this error */
+    /*dbExceptionMessages("FLUSH TABLE `".PFX."txp_lang`", $ex);*/
+}
+
+/**
+ * Create textpattern tables
+ *
+ * @param mixed  $con       pdo db connection
+ * @param string $tabletype table type
+ *
+ * @return bool
+ */
+function  txpUp($con, $tabletype)
+{
+
+    $create_sql = array();
+
+    $create_sql[] = "CREATE TABLE `".PFX."textpattern` (
+      `ID` int(11) NOT NULL auto_increment,
+      `Posted` datetime NOT NULL default '0000-00-00 00:00:00',
+      `AuthorID` varchar(64) NOT NULL default '',
+      `LastMod` datetime NOT NULL default '0000-00-00 00:00:00',
+      `LastModID` varchar(64) NOT NULL default '',
+      `Title` varchar(255) NOT NULL default '',
+      `Title_html` varchar(255) NOT NULL default '',
+      `Body` mediumtext NOT NULL,
+      `Body_html` mediumtext NOT NULL,
+      `Excerpt` text NOT NULL,
+      `Excerpt_html` mediumtext NOT NULL,
+      `Image` varchar(255) NOT NULL default '',
+      `Category1` varchar(128) NOT NULL default '',
+      `Category2` varchar(128) NOT NULL default '',
+      `Annotate` int(2) NOT NULL default '0',
+      `AnnotateInvite` varchar(255) NOT NULL default '',
+      `comments_count` int(8) NOT NULL default '0',
+      `Status` int(2) NOT NULL default '4',
+      `textile_body` int(2) NOT NULL default '1',
+      `textile_excerpt` int(2) NOT NULL default '1',
+      `Section` varchar(64) NOT NULL default '',
+      `override_form` varchar(255) NOT NULL default '',
+      `Keywords` varchar(255) NOT NULL default '',
+      `url_title` varchar(255) NOT NULL default '',
+      `custom_1` varchar(255) NOT NULL default '',
+      `custom_2` varchar(255) NOT NULL default '',
+      `custom_3` varchar(255) NOT NULL default '',
+      `custom_4` varchar(255) NOT NULL default '',
+      `custom_5` varchar(255) NOT NULL default '',
+      `custom_6` varchar(255) NOT NULL default '',
+      `custom_7` varchar(255) NOT NULL default '',
+      `custom_8` varchar(255) NOT NULL default '',
+      `custom_9` varchar(255) NOT NULL default '',
+      `custom_10` varchar(255) NOT NULL default '',
+      `uid` varchar(32) NOT NULL default '',
+      `feed_time` date NOT NULL default '0000-00-00',
+      PRIMARY KEY  (`ID`),
+      KEY `categories_idx` (`Category1`(10),`Category2`(10)),
+      KEY `Posted` (`Posted`),
+      FULLTEXT KEY `searching` (`Title`,`Body`)
+    ) $tabletype PACK_KEYS=1 AUTO_INCREMENT=2";
+
+    $create_sql[] = "CREATE TABLE `".PFX."txp_category` (
+      `id` int(6) NOT NULL auto_increment,
+      `name` varchar(64) NOT NULL default '',
+      `type` varchar(64) NOT NULL default '',
+      `parent` varchar(64) NOT NULL default '',
+      `lft` int(6) NOT NULL default '0',
+      `rgt` int(6) NOT NULL default '0',
+      `title` varchar(255) NOT NULL default '',
+      PRIMARY KEY  (`id`)
+    ) $tabletype PACK_KEYS=1";
+
+    $create_sql[] = "CREATE TABLE `".PFX."txp_css` (
+      `name` varchar(255) NOT NULL,
+      `css` text NOT NULL,
+      UNIQUE KEY `name` (`name`)
+    ) $tabletype";
+
+    $create_sql[] = "CREATE TABLE `".PFX."txp_discuss` (
+      `discussid` int(6) unsigned zerofill NOT NULL auto_increment,
+      `parentid` int(8) NOT NULL default '0',
+      `name` varchar(255) NOT NULL default '',
+      `email` varchar(50) NOT NULL default '',
+      `web` varchar(255) NOT NULL default '',
+      `ip` varchar(100) NOT NULL default '',
+      `posted` datetime NOT NULL default '0000-00-00 00:00:00',
+      `message` text NOT NULL,
+      `visible` tinyint(4) NOT NULL default '1',
+      PRIMARY KEY  (`discussid`),
+      KEY `parentid` (`parentid`)
+    ) $tabletype PACK_KEYS=1 AUTO_INCREMENT=2";
+
+    $create_sql[] = "CREATE TABLE `".PFX."txp_discuss_ipban` (
+      `ip` varchar(255) NOT NULL default '',
+      `name_used` varchar(255) NOT NULL default '',
+      `date_banned` datetime NOT NULL default '0000-00-00 00:00:00',
+      `banned_on_message` int(8) NOT NULL default '0',
+      PRIMARY KEY (`ip`)
+    ) $tabletype";
+
+    $create_sql[] = "CREATE TABLE `".PFX."txp_discuss_nonce` (
+      `issue_time` datetime NOT NULL default '0000-00-00 00:00:00',
+      `nonce` varchar(255) NOT NULL default '',
+      `used` tinyint(4) NOT NULL default '0',
+      `secret` varchar(255) NOT NULL default '',
+      PRIMARY KEY (`nonce`)
+    ) $tabletype";
+
+    $create_sql[] = "CREATE TABLE `".PFX."txp_file` (
+      `id` int(11) NOT NULL auto_increment,
+      `filename` varchar(255) NOT NULL default '',
+      `category` varchar(255) NOT NULL default '',
+      `permissions` varchar(32) NOT NULL default '0',
+      `description` text NOT NULL,
+      `downloads` int(4) unsigned NOT NULL default '0',
+      PRIMARY KEY  (`id`),
+      UNIQUE KEY `filename` (`filename`)
+    ) $tabletype PACK_KEYS=0 AUTO_INCREMENT=1";
+
+    $create_sql[] = "CREATE TABLE `".PFX."txp_form` (
+      `name` varchar(64) NOT NULL,
+      `type` varchar(28) NOT NULL default '',
+      `Form` text NOT NULL,
+      PRIMARY KEY (`name`)
+    ) $tabletype PACK_KEYS=1";
+
+    $create_sql[] = "CREATE TABLE `".PFX."txp_image` (
+      `id` int(11) NOT NULL auto_increment,
+      `name` varchar(255) NOT NULL default '',
+      `category` varchar(255) NOT NULL default '',
+      `ext` varchar(20) NOT NULL default '',
+      `w` int(8) NOT NULL default '0',
+      `h` int(8) NOT NULL default '0',
+      `alt` varchar(255) NOT NULL default '',
+      `caption` text NOT NULL,
+      `date` datetime NOT NULL default '0000-00-00 00:00:00',
+      `author` varchar(255) NOT NULL default '',
+      `thumbnail` int(2) NOT NULL default '0',
+      PRIMARY KEY  (`id`)
+    ) $tabletype PACK_KEYS=0";
+
+    $create_sql[] = "CREATE TABLE `".PFX."txp_lang` (
+      `id` int(9) NOT NULL auto_increment,
+      `lang` varchar(16) NOT NULL,
+      `name` varchar(64) NOT NULL,
+      `event` varchar(64) NOT NULL,
+      `data` text,
+      `lastmod` timestamp,
+      PRIMARY KEY  (`id`),
+      UNIQUE KEY `lang` (`lang`,`name`),
+      KEY `lang_2` (`lang`,`event`)
+    ) $tabletype AUTO_INCREMENT=1";
+
+    $create_sql[] = "CREATE TABLE `".PFX."txp_link` (
+      `id` int(6) NOT NULL auto_increment,
+      `date` datetime NOT NULL default '0000-00-00 00:00:00',
+      `category` varchar(64) NOT NULL default '',
+      `url` text NOT NULL,
+      `linkname` varchar(255) NOT NULL default '',
+      `linksort` varchar(128) NOT NULL default '',
+      `description` text NOT NULL,
+      PRIMARY KEY  (`id`)
+    ) $tabletype PACK_KEYS=1 AUTO_INCREMENT=4";
+
+    $create_sql[] = "CREATE TABLE `".PFX."txp_log` (
+      `id` int(12) NOT NULL auto_increment,
+      `time` datetime NOT NULL default '0000-00-00 00:00:00',
+      `host` varchar(255) NOT NULL default '',
+      `page` varchar(255) NOT NULL default '',
+      `refer` mediumtext NOT NULL,
+      `status` int(11) NOT NULL default '200',
+      `method` varchar(16) NOT NULL default 'GET',
+      `ip` varchar(16) NOT NULL default '',
+      PRIMARY KEY  (`id`),
+      KEY `time` (`time`)
+    ) $tabletype AUTO_INCREMENT=77";
+
+    $create_sql[] = "CREATE TABLE `".PFX."txp_page` (
+      `name` varchar(128) NOT NULL,
+      `user_html` text NOT NULL,
+      PRIMARY KEY (`name`)
+    ) $tabletype PACK_KEYS=1";
+
+    $create_sql[] = "CREATE TABLE `".PFX."txp_plugin` (
+      `name` varchar(64) NOT NULL default '',
+      `status` int(2) NOT NULL default '1',
+      `author` varchar(128) NOT NULL default '',
+      `author_uri` varchar(128) NOT NULL default '',
+      `version` varchar(10) NOT NULL default '1.0',
+      `description` text NOT NULL,
+      `help` text NOT NULL,
+      `code` text NOT NULL,
+      `code_restore` text NOT NULL,
+      `code_md5` varchar(32) NOT NULL default '',
+      `type` int(2) NOT NULL default '0',
+      UNIQUE KEY `name` (`name`)
+    ) $tabletype";
+
+    $create_sql[] = "CREATE TABLE `".PFX."txp_prefs` (
+      `prefs_id` int(11) NOT NULL,
+      `name` varchar(255) NOT NULL,
+      `val` varchar(255) NOT NULL default '',
+      `type` smallint(5) unsigned NOT NULL default '2',
+      `event` varchar(12) NOT NULL default 'publish',
+      `html` varchar(64) NOT NULL default 'text_input',
+      `position` smallint(5) unsigned NOT NULL default '0',
+      `user_name` varchar(64) NOT NULL default '',
+      UNIQUE KEY `prefs_idx` (`prefs_id`,`name`, `user_name`),
+      KEY `name` (`name`),
+      KEY `user_name` (`user_name`)
+    ) $tabletype";
+
+    $create_sql[] = "CREATE TABLE `".PFX."txp_section` (
+      `name` varchar(128) NOT NULL,
+      `page` varchar(128) NOT NULL default '',
+      `css` varchar(128) NOT NULL default '',
+      `is_default` int(2) NOT NULL default '0',
+      `in_rss` int(2) NOT NULL default '1',
+      `on_frontpage` int(2) NOT NULL default '1',
+      `searchable` int(2) NOT NULL default '1',
+      `title` varchar(255) NOT NULL default '',
+      PRIMARY KEY (`name`)
+    ) $tabletype PACK_KEYS=1";
+
+    $create_sql[] = "CREATE TABLE `".PFX."txp_users` (
+      `user_id` int(4) NOT NULL auto_increment,
+      `name` varchar(64) NOT NULL default '',
+      `pass` varchar(128) NOT NULL default '',
+      `RealName` varchar(64) NOT NULL default '',
+      `email` varchar(100) NOT NULL default '',
+      `privs` tinyint(2) NOT NULL default '1',
+      `last_access` datetime NOT NULL default '0000-00-00 00:00:00',
+      `nonce` varchar(64) NOT NULL default '',
+      PRIMARY KEY  (`user_id`),
+      UNIQUE KEY `name` (`name`)
+    ) $tabletype PACK_KEYS=1 AUTO_INCREMENT=2";
+
+    try{
+
+        $con->query(implode(';', $create_sql));
+
+    } catch (Exception $ex) {
+
+        dbExceptionMessages(implode(';', $create_sql), $ex);
+    }
+
+    return $GLOBALS['txp_install_successful'];
+
+}
+
+/**
+ * Drop Textpattern tables
+ *
+ * @param $con
+ *
+ * @return bool
+ */
+function txpDown($con)
+{
+
+    $create_sql = array();
+    $create_sql[] = "DROP TABLE `".PFX."textpattern`";
+    $create_sql[] = "DROP TABLE `".PFX."txp_category`";
+    $create_sql[] = "DROP TABLE `".PFX."txp_css`";
+    $create_sql[] = "DROP TABLE `".PFX."txp_discuss`";
+    $create_sql[] = "DROP TABLE `".PFX."txp_discuss_ipban`";
+    $create_sql[] = "DROP TABLE `".PFX."txp_discuss_nonce`";
+    $create_sql[] = "DROP TABLE `".PFX."txp_file`";
+    $create_sql[] = "DROP TABLE `".PFX."txp_form`";
+    $create_sql[] = "DROP TABLE `".PFX."txp_image`";
+    $create_sql[] = "DROP TABLE `".PFX."txp_lang`";
+    $create_sql[] = "DROP TABLE `".PFX."txp_link`";
+    $create_sql[] = "DROP TABLE `".PFX."txp_log`";
+    $create_sql[] = "DROP TABLE `".PFX."txp_page`";
+    $create_sql[] = "DROP TABLE `".PFX."txp_plugin`";
+    $create_sql[] = "DROP TABLE `".PFX."txp_prefs`";
+    $create_sql[] = "DROP TABLE `".PFX."txp_section`";
+    $create_sql[] = "DROP TABLE `".PFX."txp_users`";
+
+    try{
+
+        $con->query(implode(';', $create_sql));
+
+    } catch (Exception $ex) {
+
+        dbExceptionMessages(implode(';', $create_sql), $ex);
+    }
+
+    return $GLOBALS['txp_install_successful'];
+
+}
+
+function dbExceptionMessages($query, $ex)
+{
+
+    $GLOBALS['txp_err_count']++;
+    echo "<b>".$GLOBALS['txp_err_count'].".</b> ".$ex->getMessage()."<br />\n";
+    echo "<!--\n ". $query ." \n-->\n";
+    $GLOBALS['txp_install_successful'] = false;
+
+    return null;
+
+}
+
+
+/**
+ * Replaces any parameter placeholders in a query with the value of that
+ * parameter. Useful for debugging. Assumes anonymous parameters from
+ * $params are are in the same order as specified in $query
+ *
+ * @param string $query The sql query with parameter placeholders
+ * @param array $params The array of substitution parameters
+ * @return string The interpolated query
+ */
+function interpolateQuery($query, $params) {
+    $keys = array();
+    $values = $params;
+
+    # build a regular expression for each parameter
+    foreach ($params as $key => $value) {
+        if (is_string($key)) {
+            $keys[] = '/:'.$key.'/';
+        } else {
+            $keys[] = '/[?]/';
+        }
+
+        if (is_string($value))
+            $values[$key] = "'" . $value . "'";
+
+        if (is_array($value))
+            $values[$key] = implode(',', $value);
+
+        if (is_null($value))
+            $values[$key] = 'NULL';
+    }
+
+    $query = preg_replace($keys, $values, $query, 1, $count);
+
+    return $query;
+}
+
 
 
 /**
  * Stub replacement for txplib_db.php/safe_escape()
+ *
+ * Prepared statements do not require any escaping, let the PDO class do this work
  *
  * @ignore
  */
 
 function safe_escape($in = '')
 {
-	return mysql_real_escape_string($in);
+    return $in;
 }

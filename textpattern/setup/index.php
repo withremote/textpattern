@@ -301,25 +301,33 @@ eod;
 
 		echo hed(setup_gTxt("checking_database"), 2);
 
-		if (($mylink = mysql_connect($dhost, $duser, $dpass)))
-		{
-			$carry['dclient_flags'] = 0;
-		}
-		elseif (($mylink = mysql_connect($dhost, $duser, $dpass, false, MYSQL_CLIENT_SSL)))
-		{
-			$carry['dclient_flags'] = 'MYSQL_CLIENT_SSL';
-		}
-		else
-		{
-			echo graf(
-					span(setup_gTxt('db_cant_connect'), ' class="error"')
-				).
-				setup_back_button().
-				n.'</div>'.
-				n.'</div>';
+        /**
+         * |--------------------------------------------------------------------------
+         * | PDO Connection check
+         * |--------------------------------------------------------------------------
+         * | Try for available connection to PDO via connection details submitted
+         * |
+         */
 
-			exit;
-		}
+        try{
+            $dsn = 'mysql:dbname='.$ddb.';host='.$dhost;
+            $myLink = new PDO($dsn, $duser, $dpass);
+            $myLink->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+            $carry['dclient_flags'] = 0;
+
+        } catch (PDOException $ex) {
+
+            echo graf(
+                    span(setup_gTxt('db_cant_connect'), ' class="error"').
+                    tag($ex->getMessage(), 'p', ' class="error"')
+                ).
+                setup_back_button().
+                n.'</div>'.
+                n.'</div>';
+
+            exit;
+
+        }
 
 		echo graf(
 			span(setup_gTxt('db_connected'), ' class="success"')
@@ -339,48 +347,50 @@ eod;
 			exit;
 		}
 
-		if (!$mydb = mysql_select_db($ddb))
-		{
-			echo graf(
-				span(setup_gTxt('db_doesnt_exist', array(
-					'{dbname}' => strong(txpspecialchars($ddb))
-				), 'raw'), ' class="error"')
-				).
-				setup_back_button().
-				n.'</div>'.
-				n.'</div>';
+        /**
+         * |--------------------------------------------------------------------------
+         * | Check if "textpattern" table already exists
+         * |--------------------------------------------------------------------------
+         * |
+         */
 
-			exit;
-		}
+        try {
+            $tables_exist = $myLink->exec("describe `".$dprefix."textpattern`");
 
-		$tables_exist = mysql_query("describe `".$dprefix."textpattern`");
-		if ($tables_exist)
-		{
-			echo graf(
-				span(setup_gTxt('tables_exist', array(
-					'{dbname}' => strong(txpspecialchars($ddb))
-				), 'raw'), ' class="error"')
-				).
-				setup_back_button().
-				n.'</div>'.
-				n.'</div>';
+            if ($tables_exist)
+            {
+                echo graf(
+                        span(setup_gTxt('tables_exist', array(
+                            '{dbname}' => strong(txpspecialchars($ddb))
+                        ), 'raw'), ' class="error"')
+                    ).
+                    setup_back_button().
+                    n.'</div>'.
+                    n.'</div>';
 
-			exit;
-		}
+                exit;
+            }
+
+        } catch (PDOException $ex) {
+            /** Keep on keepin' on, the "textpattern" table does not exist! */
+        }
 
 		// On 4.1 or greater use utf8-tables.
-		$version = mysql_get_server_info();
+        $version = $myLink->getAttribute(PDO::ATTR_SERVER_VERSION);
+		/*$version = mysql_get_server_info();*/
 
 		if (intval($version[0]) >= 5 || preg_match('#^4\.[1-9]#', $version))
 		{
-			if (mysql_query("SET NAMES utf8"))
-			{
-				$carry['dbcharset'] = "utf8";
-			}
-			else
-			{
-				$carry['dbcharset'] = "latin1";
-			}
+
+            try {
+                if($myLink->query("SET NAMES utf8")) {
+                    $carry['dbcharset'] = "utf8";
+                } else {
+                    $carry['dbcharset'] = "latin1";
+                }
+            } catch (PDOException $ex) {
+                $carry['dbcharset'] = "latin1";
+            }
 		}
 		else
 		{
@@ -584,28 +594,86 @@ eod;
 		include txpath.'/setup/txpsql.php';
 
 		// This has to come after txpsql.php, because otherwise we can't call mysql_real_escape_string.
+        // mysql_real_escape_string will not be called because prepared statements are now being used
 		extract(doSlash(psa(array('name', 'pass', 'RealName', 'email', 'theme'))));
 
 		$nonce = md5(uniqid(rand(), true));
 		$hash  = doSlash(txp_hash_password($pass));
 
-		mysql_query("INSERT INTO `".PFX."txp_users` VALUES
-			(1, '$name', '$hash', '$RealName', '$email', 1, now(), '$nonce')");
+        $InsertTxpUser = $dbPDO->prepare(
+            "INSERT INTO `".PFX."txp_users` VALUES
+			(1, :name, :pass, :RealName, :email, 1, now(), :nonce)",
+            array(PDO::ATTR_CURSOR => PDO::CURSOR_FWDONLY)
+        );
 
-		mysql_query("update `".PFX."txp_prefs` set val = '".doSlash($siteurl)."' where `name`='siteurl'");
-		mysql_query("update `".PFX."txp_prefs` set val = '".LANG."' where `name`='language'");
-		mysql_query("update `".PFX."txp_prefs` set val = '".getlocale(LANG)."' where `name`='locale'");
-		mysql_query("update `".PFX."textpattern` set Body = replace(Body, 'siteurl', '".
-			doSlash($urlpath)."'), Body_html = replace(Body_html, 'siteurl', '".
-			doSlash($urlpath)."') WHERE ID = 1");
+        $InsertTxpUser->execute(
+            array(
+                ':name' => $name,
+                ':pass' => $hash,
+                ':RealName' => $RealName,
+                ':email' => $email,
+                ':nonce' => $nonce
+            )
+        );
+
+        $updatePreferences = $dbPDO->prepare(
+            "UPDATE `".PFX."txp_prefs` SET val = :val WHERE `name`= :name",
+            array(PDO::ATTR_CURSOR => PDO::CURSOR_FWDONLY)
+        );
+        $updatePreferences->execute(
+            array(
+               ':val' => doSlash($siteurl),
+               ':name' => 'siteurl'
+            )
+        );
+
+        $updatePreferences->execute(
+            array(
+                ':val' => LANG,
+                ':name' => 'language'
+            )
+        );
+
+        $updatePreferences->execute(
+            array(
+                ':val' => getlocale(LANG),
+                ':name' => 'locale'
+            )
+        );
+
+        $updateTextpatternSiteUrl = $dbPDO->prepare(
+            "UPDATE `".PFX."textpattern` SET Body = REPLACE(Body, 'siteurl', :urlpath), Body_html = REPLACE(Body_html, 'siteurl', :urlpath) WHERE ID = 1",
+            array(PDO::ATTR_CURSOR => PDO::CURSOR_FWDONLY)
+        );
+
+        $updateTextpatternSiteUrl->execute(
+            array(
+                ':urlpath' => $urlpath
+            )
+        );
 
 		// cf. update/_to_4.2.0.php.
 		// TODO: Position might need altering when prefs panel layout is altered.
-		$theme = $theme ? $theme : 'hive';
-		mysql_query("insert `".PFX."txp_prefs` set prefs_id = 1, name = 'theme_name', val = '".
-			doSlash($theme)."', type = '1', event = 'admin', html = 'themename', position = '160'");
+        $insertTheme = $dbPDO->prepare(
+            "insert `".PFX."txp_prefs` set prefs_id = 1, name = 'theme_name', val = :val, type = '1', event = 'admin', html = 'themename', position = '160'",
+            array(PDO::ATTR_CURSOR => PDO::CURSOR_FWDONLY)
+        );
 
-		echo fbCreate();
+        $insertTheme->execute(
+            array(
+                ':val' => $theme ? $theme : 'hive'
+            )
+        );
+
+
+        if ($GLOBALS['txp_install_successful'] === false)
+        {
+            /** tear down due to error in install */
+            txpDown($dbPDO);
+
+        }
+
+            echo fbCreate();
 	}
 
 // -------------------------------------------------------------
@@ -634,8 +702,7 @@ eod;
 		.($dclient_flags ? o.'client_flags'."'] = ".$dclient_flags.";\n" : '')
 		.o.'table_prefix' .m.$dprefix.nl
 		.o.'txpath'       .m.txpath.nl
-		.o.'dbcharset'    .m.$dbcharset.nl
-		.$close;
+		.o.'dbcharset'    .m.$dbcharset.nl;
 	}
 
 // -------------------------------------------------------------
@@ -647,13 +714,15 @@ eod;
 
 		if ($GLOBALS['txp_install_successful'] === false)
 		{
-			return graf(
+            return graf(
 					span(setup_gTxt('errors_during_install', array(
 						'{num}' => $GLOBALS['txp_err_count']
 					)), ' class="error"')
 				).
 				n.'</div>'.
 				n.'</div>';
+
+
 		}
 		else
 		{
